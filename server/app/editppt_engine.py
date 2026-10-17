@@ -679,8 +679,8 @@ def _record_page(project_id: str, run_dir: str, page_id: str, page_dir: str,
         recorded.append(page_no)
         db.log_usage(project_id, page_no, "editable_hi", "editppt-skill", "manifest+build", "-", 0.0,
                      0, True, "第三方 skill 高精度重建（agent 逐页写 manifest）%s" % agent_tail[:80].replace("\n", " "))
-    notify(stage="page_done", page=page_no, message="第 %s 页已重建并通过校验" % page_no,
-           done=len(recorded), total=total)
+    notify(stage="page_done", page=page_no, status="done",
+           message="第 %s 页已重建并通过校验" % page_no, done=len(recorded), total=total)
     return dict(ok=True)
 
 
@@ -756,7 +756,7 @@ def _run_pages(project_id: str, run_dir: str, rows: List[Dict[str, Any]],
             page_dir = page_dir_by_id[page_id]
             row = page_id_to_row[page_id]
             page_no = row.get("page_no")
-            notify(stage="page", page=page_no,
+            notify(stage="page", page=page_no, status="running",
                    message="正在重建第 %s 页（并发 %d，已完成 %d/%d）"
                            % (page_no, workers, len(recorded), len(dirs)),
                    done=len(recorded), total=len(dirs))
@@ -766,6 +766,8 @@ def _run_pages(project_id: str, run_dir: str, rows: List[Dict[str, Any]],
                 _log_page_error(page_dir, "hints", exc)
                 failures.append(dict(page_no=page_no, stage="hints",
                                      error="%s: %s" % (type(exc).__name__, exc)))
+                notify(stage="page_failed", page=page_no, status="failed",
+                       message="第 %s 页无法获取文字真源：%s" % (page_no, exc), done=len(recorded), total=len(dirs))
                 continue
             with STATE_LOCK:
                 disp = _run(["run", "dispatch", run_dir, "--page", page_id,
@@ -774,6 +776,8 @@ def _run_pages(project_id: str, run_dir: str, rows: List[Dict[str, Any]],
             if not disp["ok"]:
                 failures.append(dict(page_no=page_no, stage="dispatch",
                                      error=(disp["err"] or disp["out"])[-300:]))
+                notify(stage="page_failed", page=page_no, status="failed",
+                       message="第 %s 页派发失败" % page_no, done=len(recorded), total=len(dirs))
                 continue
             batch.append((page_id, page_dir, row))
         if cancelled:
@@ -802,6 +806,9 @@ def _run_pages(project_id: str, run_dir: str, rows: List[Dict[str, Any]],
                     failures.append(dict(page_no=page_no, stage=result.get("stage"),
                                          error=result.get("error"),
                                          agent_tail=result.get("agent_tail") or ""))
+                    notify(stage="page_failed", page=page_no, status="failed",
+                           message="第 %s 页失败：%s" % (page_no, result.get("error")),
+                           done=len(recorded), total=len(dirs))
         if cancelled:
             break
 

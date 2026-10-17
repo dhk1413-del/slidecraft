@@ -1134,6 +1134,7 @@ async def run_beautify_editable(project_id: str, style_pack_id: str = '') -> str
             text = await asyncio.to_thread(beautify.page_text_source, src, page['page_no'])
         items.append(dict(page_no=page['page_no'], image_path=page['beauty'],
                           texts=list(text.get('texts') or [])))
+    editppt_engine.clear_cancel(project_id)       # 新作业从干净的取消状态开始（否则上次停止会立即取消本次）
     job = new_job(project_id, 'beautify_editable', len(items))
 
     async def worker():
@@ -1153,10 +1154,10 @@ async def run_beautify_editable(project_id: str, style_pack_id: str = '') -> str
         started = time.time()
         try:
             converted = await asyncio.to_thread(
-                editppt_engine.convert_items, project_id, items, on_event, job['id'], True)
+                editppt_engine.convert_items, project_id, items, on_event, project_id, True)
         except Exception as exc:                             # noqa: BLE001
             converted = dict(ok=False, error='%s: %s' % (type(exc).__name__, str(exc)[:200]), run_dir='')
-        if is_cancelled(job['id']) or converted.get('cancelled'):
+        if is_cancelled(project_id) or converted.get('cancelled'):
             _job_update(job['id'], status='cancelled', message='已取消')
             await emit(job['id'], dict(type='cancelled', message='已取消重建'))
             return

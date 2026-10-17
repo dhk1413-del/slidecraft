@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { beautifyOrigin, beautifyContinue, beautifyEditable, beautifyPreview, beautifyRegeneratePage, beautifyRestoreVersion, beautifyVersions, createProject, getBeautify, getProject, getProjectJobs, uploadSource, prepareBeautifyContent, saveBeautifyContent, type ApiError } from '../api'
+import { beautifyOrigin, beautifyContinue, beautifyEditable, beautifyPreview, beautifyRegeneratePage, beautifyRestoreVersion, beautifyVersions, cancelEditable, createProject, editableEngines, getBeautify, getProject, getProjectJobs, uploadSource, prepareBeautifyContent, saveBeautifyContent, type ApiError } from '../api'
 import { IconFolder } from './Icons'
 import { Dropzone } from './Dropzone'
 import { ActionBar, FlowSteps, OverviewGrid, PageLightbox, PageRail, PageSelectGrid, PagerArrow, withVersion, type FlowStep } from './FlowKit'
@@ -7,15 +7,16 @@ import { useToast } from './Toast'
 import { useModalFocus } from '../hooks/useModalFocus'
 import { useJobStream } from '../hooks/useJobStream'
 import { MAX_UPLOAD_BYTES, UPLOAD_SIZE_HINT, bytes, cn, uploadTooLarge } from '../lib/format'
-import type { BeautifyStatus, BeautifyVersionsResponse, BeautifyContentPlan, StylePack } from '../types'
+import type { BeautifyStatus, BeautifyVersionsResponse, BeautifyContentPlan, EditableEngine, StylePack } from '../types'
+import { fmtSec } from './ProgressPanel'
 
 /* ─────────────── ③ PPT美化：上传 / 预览 / 完成 ─────────────── */
 
-const BEAUTIFY_STEP_LABELS = ['上传内容', '页面确认', '内容梳理', '选择风格', '生成结果'] as const
+const BEAUTIFY_STEP_LABELS = ['上传内容', '页面确认', '内容梳理', '选择风格', '生成结果', '转可编辑'] as const
 const BEAUTIFY_STEPS: FlowStep[] = BEAUTIFY_STEP_LABELS.map((label, index) => ({ key: index + 1, label }))
 
 const BEAUTIFY_STAGES: Record<string, string> = {
-  render: '原稿转图', beauty: '逐页生图', editable: '精细重建', assemble: '组装导出',
+  render: '原稿转图', beauty: '逐页生图', editable: '精细重建', prepare: '准备任务', hints: '文字真源', page: '逐页重建', page_done: '逐页重建', finalize: '组装可编辑 deck', assemble: '组装导出',
 }
 const errorDetail = (e: unknown) => (e as ApiError)?.detail || (e instanceof Error ? e.message : String(e))
 const STYLES_PER_PAGE = 6
@@ -62,7 +63,7 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageMode = 'redesign' as const
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(resumeProjectId ? 2 : 1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(resumeProjectId ? 2 : 1)
   const [file, setFile] = useState<File | null>(null)
   /** 原稿显示名：新上传取文件名；从项目恢复时取 source_path 的文件名（此时没有 File 对象） */
   const [sourceName, setSourceName] = useState('')
@@ -110,14 +111,23 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
     onDone: () => { void refresh(true) },
     onError: (message) => { setError(message); setBusy(false); void refresh(true, message) },
   })
-  /* 转可编辑版是按需作业（不随生成图片自动跑），单独跟一条 SSE */
+  /* ⑥ 转可编辑：独立步骤 + 单独 SSE；不随生成图片自动跑 */
   const [editableJobId, setEditableJobId] = useState<string | null>(null)
   const [editableBusy, setEditableBusy] = useState(false)
+  const [editableIndex, setEditableIndex] = useState(0)
+  const [editableEngine, setEditableEngine] = useState<EditableEngine | null>(null)
   const editableStream = useJobStream(editableJobId, {
     onDone: () => { setEditableBusy(false); toast.success('精细重建完成', '可在下方下载可编辑版 PPT'); void refresh(true) },
     onError: (message) => { setEditableBusy(false); setError(message); void refresh(true, message) },
     onCancelled: () => { setEditableBusy(false); void refresh(true) },
   })
+  useEffect(() => {
+    let active = true
+    editableEngines()
+      .then((res) => { if (active) setEditableEngine(res.engines.find((e) => e.id === 'editppt') ?? res.engines[0] ?? null) })
+      .catch(() => { if (active) setEditableEngine(null) })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     if (initialStylePackId) { setPackId(initialStylePackId); return }
@@ -150,8 +160,10 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
         setContentSaved(Boolean(status.content_saved))
       } catch { /* 内容计划只服务第③步，取不到就停在页面确认，不编造内容 */ }
       const running = jobs.items.find(job => job.kind === 'beautify' && ['running', 'cancelling', 'queued'].includes(job.status))
+      const editableRunning = jobs.items.find(job => job.kind === 'beautify_editable' && ['running', 'cancelling', 'queued'].includes(job.status))
       if (!active) return
-      if (running) { setJobId(running.id); setBusy(true); setStep(5) }
+      if (editableRunning) { setEditableJobId(editableRunning.id); setEditableBusy(true); setStep(6) }
+      else if (running) { setJobId(running.id); setBusy(true); setStep(5) }
       else {
         setBusy(false)
         // 有已生成页 → 回到生成结果；跑过但没产出（取消/失败）→ 回到内容梳理；从未跑过 → 页面确认
@@ -163,10 +175,10 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
   /* 运行期间每秒走一格，用于显示真实已用时（不再显示恒为 0 的假数据） */
   const [nowTick, setNowTick] = useState(() => Date.now())
   useEffect(() => {
-    if (stream.status !== 'running') return
+    if (stream.status !== 'running' && !editableBusy) return
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [stream.status])
+  }, [stream.status, editableBusy])
 
   async function refresh(finished = false, jobError: string | null = null) {
     if (!projectId) return
@@ -254,6 +266,15 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
       setEditableJobId(job.job_id)
       toast.info('已开始精细重建可编辑版', '文字/图片/图形/背景分别拆分；完成后可下载可编辑版 PPT')
     } catch (e) { setEditableBusy(false); setError(errorDetail(e)) }
+  }
+
+  /** 停止正在跑的精细重建（保留已完成页与现场，可继续） */
+  async function cancelEditableConversion() {
+    if (!projectId) return
+    try {
+      await cancelEditable(projectId)
+      toast.info('已请求停止', '当前页会被终止，已完成页与现场保留，可稍后继续')
+    } catch (e) { setError(errorDetail(e)) }
   }
 
   /** 打开/关闭本页历史版本列表（每次打开都重新拉，避免看到旧数据） */
@@ -379,6 +400,35 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
     if (stream.status === 'running') return { label: '排队中', cls: 'status-info' }
     return { label: '未生成', cls: 'status-info' }
   }
+  /* ⑥ 转可编辑：进度、逐页状态与耗时估算（全部来自 SSE / 后端现场，不编造） */
+  const editableTotal = resultPages.length
+  const editableRunning = editableBusy || editableStream.status === 'running'
+  const editableSettledDone = Object.values(editableStream.settled).filter(status => status === 'done').length
+  const editableSettledFailed = Object.values(editableStream.settled).filter(status => status === 'failed').length
+  const editableDone = Math.max(editableSettledDone, editableStream.progressDone, result?.exports?.editable && !editableRunning ? editableTotal : 0)
+  const editablePercent = editableTotal ? Math.min(100, Math.round((100 * editableDone) / editableTotal)) : 0
+  const editableCurrentIndex = Math.min(editableIndex, Math.max(0, editableTotal - 1))
+  const editableCurrent = editableTotal ? resultPages[editableCurrentIndex] : undefined
+  const editableLastStage = editableStream.events[editableStream.events.length - 1]?.stage
+  const editableStageKey = editableLastStage === 'finalize' ? 'finalize'
+    : editableStream.events.some(event => event.stage === 'page' || event.stage === 'page_done') ? 'page'
+    : editableLastStage === 'hints' ? 'hints' : 'prepare'
+  const editableStageText = editableRunning
+    ? (BEAUTIFY_STAGES[editableStageKey] ?? '逐页重建')
+    : result?.exports?.editable ? '已完成' : editableStream.status === 'error' ? '失败' : editableStream.status === 'cancelled' ? '已停止' : '待开始'
+  const editableElapsedMs = editableStream.startedAt ? Math.max(0, (editableStream.finishedAt ?? nowTick) - editableStream.startedAt) : 0
+  const editablePerPageMs = editableDone > 0 ? editableElapsedMs / editableDone : (editableEngine?.seconds_per_page ? editableEngine.seconds_per_page * 1000 : 780000)
+  const editableEtaMs = editableTotal > editableDone ? editablePerPageMs * (editableTotal - editableDone) : 0
+  const editablePageState = (pageNo: number) => {
+    const event = editableStream.byPage[pageNo]
+    if (editableStream.settled[pageNo] === 'done' || event?.stage === 'page_done') return { label: '已完成', cls: 'status-success' }
+    if (editableStream.settled[pageNo] === 'failed' || event?.stage === 'page_failed') return { label: '失败', cls: 'status-danger' }
+    if (event?.stage === 'page') return { label: '重建中', cls: 'status-info' }
+    if (editableRunning) return { label: '排队中', cls: 'status-info' }
+    if (result?.exports?.editable) return { label: '已完成', cls: 'status-success' }
+    return { label: '待重建', cls: 'status-info' }
+  }
+
   /** 步骤可达性：只按真实数据放行（前进/后退都行）；不可达时给出中文原因，点击如实提示而不是静默点不动 */
   const stepLocks: Record<number, string | undefined> = {
     1: undefined,
@@ -386,12 +436,14 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
     3: content ? undefined : '先在第②步点「开始梳理内容」',
     4: contentSaved ? undefined : '先在第③步点「确认内容，选择风格」',
     5: (result?.pages?.length ?? 0) > 0 ? undefined : '先在第④步生成前 3 页预览',
+    6: result?.phase === 'done' ? undefined : '先生成全部页面的美化图（第⑤步完成）',
   }
   function goStep(target: number) {
     if (busy || target === step) return
     const lock = stepLocks[target]
     if (lock) { toast.info(`「${BEAUTIFY_STEP_LABELS[target - 1]}」暂时不能进入：${lock}`); return }
-    setStep(target as 1 | 2 | 3 | 4 | 5)
+    if (target === 6) setError(null)
+    setStep(target as 1 | 2 | 3 | 4 | 5 | 6)
   }
   /** 重新生成当前这一页：后端只动这一页，其它页与导出不变，最后重装配图片版 */
   async function regenerateCurrentPage(instruction = '') {
@@ -688,7 +740,76 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
           。
         </p>
       )}
-      {step === 5 && editableBusy && <div className="panel-alt text-body-sm" role="status">{editableStream.message || '正在精细重建可编辑版…'}</div>}
+      {step === 6 && result && (
+        <>
+          <section className="card" aria-label="转可编辑进度">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="card-title m-0! text-h3">转可编辑</h2>
+              <span className={cn('status', editableRunning ? 'status-info' : result.exports.editable ? 'status-success' : editableStream.status === 'error' ? 'status-danger' : 'status-info')}>{editableStageText}</span>
+              <span className="num text-ink-sub">已完成 {editableDone} / {editableTotal} 页</span>
+              <span className="flex-1" />
+              {editableEngine && <span className={cn('status', editableEngine.ok ? 'status-success' : 'status-danger')}>{editableEngine.ok ? '引擎可用' : '引擎不可用'}</span>}
+            </div>
+            <p className="m-0 mt-2 text-body-sm text-ink-sub">
+              把每页美化图交给 image-to-editable-ppt 精细重建：文字→原生文本框，图片/图标→透明 PNG 资产，图形→原生形状，背景→clean base 或原生背景；产物只包含所转页面，每页通过 validation 校验。
+            </p>
+            <div className="mt-3" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={editablePercent} aria-label="转可编辑进度">
+              <div className="flex flex-wrap items-center gap-2 text-body-sm">
+                <span className="font-semibold">{editableRunning ? (editableStream.message || '正在精细重建…') : editableStageText}</span>
+                <span className="flex-1" />
+                <span className="num font-semibold text-primary">{editablePercent}%</span>
+              </div>
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface-alt">
+                <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${editablePercent}%` }} />
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-sub">
+                <span>已完成 <span className="num">{editableDone}</span> / <span className="num">{editableTotal}</span> 页</span>
+                {editableSettledFailed > 0 && <span className="text-danger">失败 <span className="num">{editableSettledFailed}</span> 页</span>}
+                {editableRunning && editableStream.startedAt && <span>已用 <span className="num">{fmtSec(editableElapsedMs)}</span></span>}
+                {editableRunning && editableEtaMs > 0 && <span>约还需 <span className="num">{fmtSec(editableEtaMs)}</span>{editableDone > 0 ? '（按已完成页估算）' : '（按 13 分钟/页）'}</span>}
+                {!editableRunning && result.exports.editable && <span>可编辑版已就绪</span>}
+              </div>
+            </div>
+            {editableEngine && !editableEngine.ok && <div className="panel-alt mt-3 text-body-sm" role="alert">精细重建引擎不可用：{editableEngine.reason}</div>}
+            {editableStream.status === 'error' && <div className="error-box mt-3" role="alert">精细重建失败：{editableStream.error || editableStream.message}</div>}
+            {error && editableStream.status !== 'error' && <div className="error-box mt-3" role="alert">{error}</div>}
+            {editableStream.status === 'cancelled' && <div className="panel-alt mt-3 text-body-sm" role="status">已停止：已完成页与现场保留，可重新开始。</div>}
+          </section>
+
+          {resultPages.length > 0 && (
+            <div className="deck-split">
+              <PageRail label="转可编辑页面列表" current={editableCurrentIndex} onSelect={setEditableIndex}
+                items={resultPages.map(page => ({
+                  key: page.page_no, label: `第 ${page.page_no} 页`,
+                  thumb: withVersion(page.beauty_url || page.origin_url, result.updated_at),
+                  status: (() => { const state = editablePageState(page.page_no); return { text: state.label, cls: state.cls } })(),
+                }))} />
+              <section className="deck-slide-shell" aria-label={`第 ${editableCurrent?.page_no ?? ''} 页转可编辑`}>
+                <div className="deck-slide-head">
+                  <span className="num font-semibold text-primary">P{editableCurrent?.page_no ?? ''}</span>
+                  <span className="font-semibold">第 <span className="num">{editableCurrent?.page_no ?? ''}</span> 页</span>
+                  {editableCurrent && <span className={cn('status', editablePageState(editableCurrent.page_no).cls)}>{editablePageState(editableCurrent.page_no).label}</span>}
+                  <span className="flex-1" />
+                  {!editableRunning && result.exports.editable && <a className="btn btn-primary rounded-full" href={result.exports.editable} download>下载可编辑版 PPT</a>}
+                  {result.exports.image && <a className="btn btn-secondary rounded-full" href={result.exports.image} download>下载图片集 PPT</a>}
+                </div>
+                {editableCurrent?.beauty_url
+                  ? <div className="deck-media-frame"><img src={withVersion(editableCurrent.beauty_url, result.updated_at)} alt={`第 ${editableCurrent.page_no} 页美化图`} /></div>
+                  : <p className="deck-slide-empty">这一页还没有美化图。</p>}
+                {editableRunning && <div className="panel-alt mt-2 text-body-sm" role="status">{editableStream.message || '正在精细重建…'}</div>}
+              </section>
+            </div>
+          )}
+
+          <ActionBar>
+            {editableRunning
+              ? <button type="button" className="btn btn-secondary rounded-full" onClick={() => void cancelEditableConversion()}>停止精细重建</button>
+              : <button type="button" className="btn btn-primary rounded-full" disabled={!editableEngine?.ok || !editableTotal}
+                  onClick={() => void convertEditable()}>{result.exports.editable ? '重新精细重建' : `开始精细重建（${editableTotal} 页）`}</button>}
+            <button type="button" className="btn btn-secondary rounded-full" onClick={() => setStep(5)}>返回生成结果</button>
+          </ActionBar>
+        </>
+      )}
       {versionPreview && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/70 p-4" role="dialog" aria-modal="true"
              aria-label="历史版本预览" onClick={() => setVersionPreview(null)}>
@@ -718,10 +839,9 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
           : <>已完成 <span className="num">{resultDoneCount}</span> / <span className="num">{resultPages.length}</span> 页</>}</span>
         <button type="button" className="btn btn-secondary rounded-full" disabled={busy || jobActive} onClick={() => setStep(4)}>重新选择风格</button>
         {result.phase === 'preview' && <button type="button" className="btn btn-primary rounded-full" disabled={busy || (!result.exports.image && stream.status !== 'cancelled')} onClick={() => void continueAll()}>{busy ? '正在生成…' : '确认预览，生成全部所选页面'}</button>}
-        {result.phase === 'done' && <button type="button" className="btn btn-secondary rounded-full" disabled={busy || editableBusy}
-          title={result.exports.editable ? '重新精细重建一次可编辑版' : '按需把图片版精细重建为可编辑版（文字/图片/图形/背景分别拆分；生成图片时不会自动执行）'}
-          onClick={() => void convertEditable()}>{editableBusy ? '正在精细重建…' : result.exports.editable ? '重新精细重建' : '转可编辑版（精细重建）'}</button>}
-        {result.exports.editable && <a className="btn btn-primary rounded-full" href={result.exports.editable} download>下载可编辑版 PPT</a>}
+        {result.phase === 'done' && <button type="button" className="btn btn-secondary rounded-full" disabled={busy}
+          title="进入独立的「转可编辑」步骤：查看逐页进度、停止/继续并下载可编辑版"
+          onClick={() => setStep(6)}>{result.exports.editable ? '查看转可编辑结果' : '下一步：转可编辑'}</button>}
         {result.exports.image && <a className={cn('btn rounded-full', result.exports.editable ? 'btn-secondary' : result.phase === 'preview' ? 'btn-secondary' : 'btn-primary')} href={result.exports.image} download>下载图片集 PPT</a>}
       </ActionBar>}
       {step === 5 && stream.status === 'error' && <button type="button" className="btn btn-secondary self-start" onClick={() => { setStep(4); setResult(null); setError(null); setJobId(null) }}>返回并重新生成预览</button>}
