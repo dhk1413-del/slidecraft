@@ -4,7 +4,7 @@
 
 ## 0. 一句话流程
 
-上传 PPTX/PDF → 前 1–3 页转图、逐页生图（并发上限 3）、合成 image.pptx 预览 → 用户确认 → 全部页转图、仅补未生图页 → 全量 image.pptx；**生成图片时不再自动重建可编辑版**，用户在生成结果页点「转文字可编辑版」（POST /beautify/editable）才走 `editppt` 精细重建产出 full.pptx（2026-10-17 起移除 Codex 路径）。
+上传 PPTX/PDF → 前 1–3 页转图、逐页生图（并发上限 3）、合成 image.pptx 预览 → 用户确认 → 全部页转图、仅补未生图页 → 全量 image.pptx；**生成图片时不再自动重建可编辑版**，用户进入第⑥步「转可编辑」并点「开始精细重建」（POST /beautify/editable）才走 `editppt` 精细重建产出 full.pptx（2026-10-17 起移除 Codex 路径）。
 
 ## 1. 铁律（沿用仓库约定，违反即不通过）
 
