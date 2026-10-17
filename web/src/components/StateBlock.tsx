@@ -80,7 +80,7 @@ export function ErrorState({
     <div className="error-box" role="alert">
       <div className="font-semibold">
         {title}
-        <span className="num ml-2 opacity-70">HTTP {error.status || '—'}</span>
+        <span className="num ml-2 opacity-70">{error.status ? `HTTP ${error.status}` : '客户端错误'}</span>
       </div>
       <ul className={compact ? 'mt-1 text-body-sm' : 'mt-2 text-body-md'}>
         <li>· 缺什么：{missing}</li>
