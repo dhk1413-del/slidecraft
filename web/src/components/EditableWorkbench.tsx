@@ -115,8 +115,9 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
         slidesState.reload()
       } catch (e) {
         if (e instanceof SubmissionCancelled) { toast.info('已取消，未提交'); return }
-        setEditError(e as ApiError)
-        toast.error('提交失败', (e as ApiError).detail)
+        const error = e instanceof ApiError ? e : new ApiError(e instanceof Error ? e.message : String(e), 0)
+        setEditError(error)
+        toast.error('提交失败', error.detail)
       } finally {
         setConfirming(false)
         setSubmitting(false)

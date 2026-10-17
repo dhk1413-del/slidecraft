@@ -419,6 +419,19 @@ interface OperationQuote {
   cancellable:boolean; estimated_time:string; failure_policy:string; price_note:string;
 }
 const operationBusy = new Set<string>()
+
+/** 幂等键：crypto.randomUUID 只在安全上下文（HTTPS/localhost）可用，局域网 HTTP 要自己兜底。 */
+function newSubmissionKey(): string {
+  const c = globalThis.crypto
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(bytes)
+  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
 function confirmOperation(q:OperationQuote):Promise<boolean> {
   return new Promise(resolve=>{
     const trigger=document.activeElement instanceof HTMLElement?document.activeElement:null
@@ -484,7 +497,7 @@ async function confirmedSubmission<T>(pid:string,path:string,operation:string,bo
       const q=await request<OperationQuote>(`/projects/${encodeURIComponent(pid)}/quote`,jsonInit('POST',{...body,operation}))
       if(!await confirmOperation(q))throw new SubmissionCancelled()
       onPhase?.('submit')
-      pending={key:crypto.randomUUID(),quote_id:q.quote_id,path,body}
+      pending={key:newSubmissionKey(),quote_id:q.quote_id,path,body}
       localStorage.setItem(slot,JSON.stringify(pending))
     }
     try {
