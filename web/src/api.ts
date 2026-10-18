@@ -493,9 +493,10 @@ async function confirmedSubmission<T>(pid:string,path:string,operation:string,bo
       catch(e){if(!(e instanceof ApiError) || e.status!==404)throw e}
       // 服务端明确未登记后才重试同一请求；不生成新键。
     } else {
-      onPhase?.('quote')
+      // 精细重建（editable）不弹确认框：费用/范围已在页面里说明，报价仍走服务端以保证幂等与可审计。
+      if(operation !== 'editable') onPhase?.('quote')
       const q=await request<OperationQuote>(`/projects/${encodeURIComponent(pid)}/quote`,jsonInit('POST',{...body,operation}))
-      if(!await confirmOperation(q))throw new SubmissionCancelled()
+      if(operation !== 'editable' && !await confirmOperation(q))throw new SubmissionCancelled()
       onPhase?.('submit')
       pending={key:newSubmissionKey(),quote_id:q.quote_id,path,body}
       localStorage.setItem(slot,JSON.stringify(pending))

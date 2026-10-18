@@ -28,7 +28,6 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
   const [editInfo, setEditInfo] = useState<EditableResponse | null>(null)
   const [editJobId, setEditJobId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [confirming, setConfirming] = useState(false)
   const [editError, setEditError] = useState<ApiError | null>(null)
   const [hiStatus, setHiStatus] = useState<EditpptStatus | null>(null)
   const [hiRunning, setHiRunning] = useState(false)
@@ -97,13 +96,10 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
         toast.error('引擎不可用', engine.reason ?? '')
         return
       }
-      setConfirming(true)
+      setSubmitting(true)
       setEditError(null)
       try {
-        const res = await toEditable(projectId, targets, 'editppt', resume, (phase) => {
-          setConfirming(phase === 'quote')
-          setSubmitting(phase === 'submit')
-        })
+        const res = await toEditable(projectId, targets, 'editppt', resume)
         setEditInfo(res)
         setEditJobId(res.job_id)
         setHiRunning(true)
@@ -119,7 +115,6 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
         setEditError(error)
         toast.error('提交失败', error.detail)
       } finally {
-        setConfirming(false)
         setSubmitting(false)
       }
     },
@@ -296,7 +291,7 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
       <button
         type="button"
         className="btn btn-primary rounded-full px-6"
-        disabled={confirming || submitting || hiRunning || !selected.length || (engine ? !engine.ok : false)}
+        disabled={submitting || hiRunning || !selected.length || (engine ? !engine.ok : false)}
         onClick={() => start()}
         title={
           !selected.length
@@ -306,7 +301,7 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
               : 'POST /api/projects/{id}/editable（engine=editppt）'
         }
       >
-        {confirming ? '等待确认…' : submitting ? '提交中…' : `开始精细重建（${selected.length} 页）`}
+        {submitting ? '提交中…' : `开始精细重建（${selected.length} 页）`}
       </button>
     </ActionBar>
   )
