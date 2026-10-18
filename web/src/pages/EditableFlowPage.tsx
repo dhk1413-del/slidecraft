@@ -156,17 +156,7 @@ export function EditableFlowPage({ projectId }: { projectId: string }) {
         </>
       )}
 
-      {step === 3 && (
-        <>
-          <section className="card flex flex-wrap items-center gap-2">
-            <span className="font-semibold">转换结果</span>
-            <span className="text-body-sm text-ink-sub">产物只包含已转换页面；每页通过 validation 校验</span>
-            <span className="flex-1" />
-            <button type="button" className="btn btn-secondary rounded-full" onClick={() => setStep(2)}>返回页面确认</button>
-          </section>
-          <EditableWorkbench projectId={projectId} autoStart={false} />
-        </>
-      )}
+      {step === 3 && <EditableWorkbench projectId={projectId} autoStart={false} />}
 
       <p className={cn('m-0 text-caption text-ink-sub', step !== 1 && 'hidden')}>
         数据来源：GET /api/projects/{projectId}/slides

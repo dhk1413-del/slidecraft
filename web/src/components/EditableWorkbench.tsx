@@ -147,36 +147,6 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
   const pageMinutes = engine?.seconds_per_page ? engine.seconds_per_page / 60 : 13
   const estLabel = `${selected.length} 页 ≈ ${Math.max(1, Math.round(selected.length * pageMinutes))} 分钟`
 
-  const engineBanner = (
-    <div className="card">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h2 className="card-title m-0! text-h3">精细重建引擎</h2>
-        <span className={cn('status', engine?.ok ? 'status-success' : engine ? 'status-danger' : 'status-info')}>
-          {engine ? (engine.ok ? '可用（第三方 skill）' : '不可用') : '探测中…'}
-        </span>
-        <span className="num text-ink-sub">实测约 {pageMinutes} 分钟/页</span>
-        <span className="flex-1" />
-        {engine?.cli && <span className="num text-caption text-ink-muted truncate" title={engine.cli}>{engine.cli}</span>}
-      </div>
-      <p className="m-0 text-body-sm text-ink-sub">
-        逐页派本机 Harness agent 执行 skill 精细重建（文字/图片/图形/背景分别拆分），每页产物自带 <span className="num">validation</span> 校验；
-        产物<b>只包含所转的页面</b>，不会夹带整页图片。
-      </p>
-      {engine && !engine.ok && (
-        <div className="mt-3">
-          <ErrorState
-            compact
-            title="精细重建引擎不可用"
-            error={new ApiError(`${engine.reason ?? '未知原因'}；请检查 ~/.editppt-venv/bin/editppt 与 image-to-editable-ppt skill 目录`, 0)}
-          />
-        </div>
-      )}
-      {editInfo?.message && (
-        <p className="mt-2 mb-0 text-body-sm text-ink-sub">{editInfo.message}</p>
-      )}
-    </div>
-  )
-
   const grid = (
     <div className="card">
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -343,7 +313,9 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
 
   return (
     <div className="flex flex-col gap-4">
-      {engineBanner}
+      {engine && !engine.ok && (
+        <div className="panel-alt text-body-sm" role="alert">精细重建引擎不可用：{engine.reason ?? '未知原因'}</div>
+      )}
       {editError && <ErrorState error={editError} onRetry={() => start()} title="提交转换失败" />}
       {grid}
       {artifactCard}
