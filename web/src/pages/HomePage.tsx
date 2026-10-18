@@ -298,9 +298,9 @@ function EditablePanel() {
         source_type: sourceTypeOf(files[0].name),
         intake_mode: 'doc',
       })
-      // 逐页渲染 + 登记成 slides → 直达项目工作台的「按图片版重建」页签，并自动开始
+      // 逐页渲染 + 登记成 slides → 进入图片转可编辑的 3 步流程（上传 → 页面确认 → 转换结果）
       await importPages(id, files)
-      navigate(`/projects/${id}?tab=editable&auto=1`)
+      navigate(`/editable/${id}`)
     } catch (e) {
       setError((e as ApiError).detail || '导入失败，请重试')
     } finally {
@@ -354,7 +354,7 @@ function EditablePanel() {
 
       <div className="gen-panel-foot">
         <span className="text-body-sm text-ink-sub">
-          上传后自动开始逐页重建；每页约 13 分钟，可随时停止，已完成页会保留。
+          上传后先确认页面，再开始逐页精细重建；每页约 13 分钟，可随时停止，已完成页会保留。
         </span>
         <button type="button" className="btn btn-primary" disabled={!files.length || busy} onClick={start}>
           {busy ? '正在导入…' : '转可编辑 PPT'}

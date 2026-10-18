@@ -150,6 +150,7 @@ export function WizardPage() {
     setRestoring(true)
     Promise.all([getProject(id), getSlides(id)]).then(([project, slides]) => {
       if (cancelled) return
+      if (project.flow === 'editable') { navigate(`/editable/${id}`); return }
       setHasResults(slides.some(p => Boolean(p.image_url) || ['running','failed','interrupted'].includes(p.status)))
       setProjectId(id)
       projectStamp.current=project.updated_at

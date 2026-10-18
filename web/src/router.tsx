@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState, type AnchorHTMLAttributes } 
 export type RouteName =
   | 'home'
   | 'wizard'
+  | 'editable'
   | 'projects'
   | 'workbench'
   | 'notes'
@@ -58,6 +59,7 @@ function match(path: string): Route {
   const at = (i: number) => decodeURIComponent(seg[i] ?? '')
   if (seg.length === 0) return { name: 'home', params: {}, path }
   if (seg[0] === 'wizard') return { name: 'wizard', params: { id: at(1), step: at(2) }, path }
+  if (seg[0] === 'editable') return { name: 'editable', params: { id: at(1) }, path }
   if (seg[0] === 'projects' && seg.length === 1) return { name: 'projects', params: {}, path }
   if (seg[0] === 'projects' && seg.length >= 2)
     return { name: 'workbench', params: { id: at(1) }, path }

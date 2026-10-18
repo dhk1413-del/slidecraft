@@ -18,6 +18,7 @@ import { StyleDetailRoute, StylesPage } from './pages/StylesPage'
 import { StyleBuilderPage } from './pages/StyleBuilderPage'
 import { UsagePage } from './pages/UsagePage'
 import { WizardPage } from './pages/WizardPage'
+import { EditableFlowPage } from './pages/EditableFlowPage'
 import { readQuery, useRoute } from './router'
 
 const noop = () => {}
@@ -28,12 +29,12 @@ const noop = () => {}
  * · 其它 → 生成向导（WizardPage 自己按 resume_step 跳步）
  */
 function ProjectRoute({ id }: { id: string }) {
-  const [flow, setFlow] = useState<'loading' | 'beautify' | 'wizard'>('loading')
+  const [flow, setFlow] = useState<'loading' | 'beautify' | 'editable' | 'wizard'>('loading')
   const packs = useAsync(listStylePacks, [])
   useEffect(() => {
     let active = true
     getProject(id)
-      .then((project) => { if (active) setFlow(project.flow === 'beautify' ? 'beautify' : 'wizard') })
+      .then((project) => { if (active) setFlow(project.flow === 'beautify' ? 'beautify' : project.flow === 'editable' ? 'editable' : 'wizard') })
       .catch(() => { if (active) setFlow('wizard') })   // 取不到就让向导页自己去报错，不在这里编状态
     return () => { active = false }
   }, [id])
@@ -41,6 +42,7 @@ function ProjectRoute({ id }: { id: string }) {
   if (flow === 'beautify') {
     return <BeautifyPanel packs={packs.data?.items ?? []} loadingPacks={packs.loading} onStepChange={noop} resumeProjectId={id} />
   }
+  if (flow === 'editable') return <EditableFlowPage projectId={id} />
   return <WizardPage />
 }
 
@@ -51,6 +53,7 @@ export default function App() {
     <AppShell>
       {route.name === 'home' && (readQuery().style ? <WizardPage /> : <HomePage />)}
       {route.name === 'wizard' && <WizardPage />}
+      {route.name === 'editable' && <EditableFlowPage projectId={route.params.id ?? ''} />}
       {route.name === 'notes' && <NotesPage />}
       {route.name === 'note-detail' && <NotesWorkbench nid={route.params.id ?? ''} />}
       {route.name === 'projects' && <ProjectsPage />}
