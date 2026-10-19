@@ -160,7 +160,7 @@ export function HomePage() {
 
           {/* 功能框：固定高度，三个模式互相切换时尺寸不跳动；内容更高时在框内滚动 */}
           <div className={cn('mode-panel min-w-0', beautifyWorkbench && 'is-workbench')}>
-            {mode === 'topic' && <TopicPanel pickedPack={pickedPack} pickedName={packOptions.find((p) => p.id === pickedPack)?.name} />}
+            {mode === 'topic' && <TopicPanel pickedPack={pickedPack} />}
             {mode === 'editable' && <EditablePanel />}
             {mode === 'reskin' && <BeautifyPanel packs={packOptions} loadingPacks={packs.loading} onStepChange={setBeautifyStep} initialStylePackId={pickedPack} />}
           </div>
@@ -212,7 +212,7 @@ function PanelHead({ lead }: { lead: ReactNode }) {
 
 const DOC_ACCEPT = '.md,.markdown,.txt,.docx,.pdf,.pptx'
 
-function TopicPanel({ pickedPack, pickedName }: { pickedPack: string | null; pickedName?: string }) {
+function TopicPanel({ pickedPack }: { pickedPack: string | null }) {
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -237,14 +237,6 @@ function TopicPanel({ pickedPack, pickedName }: { pickedPack: string | null; pic
             </>
           }
         />
-        <button
-          type="button"
-          className="gen-panel-style btn btn-secondary h-8! text-body-sm"
-          title="在下方「设计师原创设计风格」里挑选模板"
-          onClick={() => document.querySelector('#style-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-        >
-          ✦ 设计风格 · {pickedName ? `已选 ${pickedName}` : '可选'}
-        </button>
       </div>
 
       <div className="gen-panel-drop">

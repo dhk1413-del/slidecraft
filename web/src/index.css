@@ -372,7 +372,6 @@ textarea.input { min-height: 96px; }
 /* 生成面板骨架（参照参考页布局）：说明行 + 自适应大拖拽区 + 底部操作条 */
 .gen-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; gap: 12px; }
 .gen-panel-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 12px; }
-.gen-panel-style { margin-left: auto; flex-shrink: 0; }
 .gen-panel-drop { display: flex; flex: 1 1 auto; min-height: 150px; }
 .gen-panel-drop > * { flex: 1 1 auto; min-width: 0; }
 .gen-panel-drop > .df-dropzone { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
