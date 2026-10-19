@@ -743,11 +743,10 @@ export function WizardPage() {
   const saveLabel = saveFailed ? '保存失败' : saveBusy ? '正在保存…' : saveFlags.includes('未保存') ? '未保存' : '已保存'
   return (
     <div className="flex flex-col gap-4">
-      {/* 顶栏卡片紧凑排版：标题 / 项目名称 / 保存状态 同一行，步骤条收紧（约原来一半高） */}
+      {/* 顶栏卡片紧凑排版：标题 + 保存状态 一行，步骤条收紧 */}
       <div className="card wizard-head">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="m-0 text-h3 font-semibold">{projectId ? title : '生成向导'}</h1>
-          {projectId && <label className="flex items-center gap-2 whitespace-nowrap"><span className="metric-label">项目名称</span><input className="input h-8!" style={{ maxWidth: 320 }} value={title} onChange={e => {setTitle(e.target.value);stageConfig({title:e.target.value})}} onBlur={() => void saveConfig({title})} /></label>}
           {projectId && (
             <span role="status" className={cn('status', saveFailed ? 'status-danger' : saveBusy ? 'status-warn' : 'status-success')}>
               {saveLabel}

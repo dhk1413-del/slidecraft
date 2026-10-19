@@ -100,7 +100,6 @@ export function ContentEditor({projectId, onConfirmed, onExclude, onSaveState}: 
     void flush()
   }
   return <div className="card"><h2 className="card-title">内容确认</h2>
-    <p className="text-body-sm text-ink-sub">请核对标题、要点、模块及来源；空值与「待统计」不能作为 <span className="num">0</span>。保存内容不会重新生成图片。</p>
     {error && <p role="alert" className="text-danger">{error}</p>}
     <div className="deck-split">
       <PageRail label="页面列表" current={currentIndex} onSelect={selectPage}
