@@ -140,7 +140,6 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
     void submit(targets, false)
   }, [autoStart, projectId, readyPageNos.length, pendingPages.length, submit])
 
-  const selectedSet = new Set(selected)
   const pageMinutes = engine?.seconds_per_page ? engine.seconds_per_page / 60 : 13
   const estLabel = `${selected.length} 页 ≈ ${Math.max(1, Math.round(selected.length * pageMinutes))} 分钟`
 
@@ -192,7 +191,6 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
         <span className="font-semibold">第 <span className="num">{currentSlide.page_no}</span> 页</span>
         <span className={cn('status', currentState.cls)}>{currentState.text}</span>
         <span className="flex-1" />
-        {selectedSet.has(currentSlide.page_no) && <span className="status status-info">已勾选</span>}
         <button type="button" className="btn btn-secondary rounded-full" onClick={() => setLightboxIndex(readySlides.indexOf(currentSlide))}>查看大图</button>
       </div>
       <div className="relative">

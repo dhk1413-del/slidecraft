@@ -83,14 +83,7 @@ export function EditableFlowPage({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <header className="card flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-0">
-            <h1 className="m-0 truncate text-2xl font-semibold">{project.title || '图片转可编辑'}</h1>
-            <p className="m-0 mt-1 text-caption text-ink-muted">项目 <span className="num">{project.id}</span></p>
-          </div>
-          <span className="flex-1" />
-          <span className="status status-info">图片转可编辑</span>
-        </div>
+        <h1 className="m-0 truncate text-2xl font-semibold">{project.title || '图片转可编辑'}</h1>
         <FlowSteps steps={EDITABLE_STEPS} current={step} locks={stepLocks} busy={busy}
           onJump={(target) => setStep(target as 1 | 2 | 3)}
           onLocked={(_, reason) => { if (reason) toast.info('暂时不能进入', reason) }}
