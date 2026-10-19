@@ -99,7 +99,6 @@ export function WizardPage() {
   const [contentConfirmed, setContentConfirmed] = useState(false)
   const [hasResults, setHasResults] = useState(false)
   const [projectSize, setProjectSize] = useState('2K')
-  const [tab, setTab] = useState<'generate' | 'editable'>(readQuery().tab === 'editable' ? 'editable' : 'generate')
   const [errorAt, setErrorAt] = useState<number | undefined>(undefined)
 
   // ① 上传
@@ -783,9 +782,7 @@ export function WizardPage() {
           pageNos={keptPages.map((p) => p.page_no)}
           view="both"
           defaultSize={projectSize}
-          tab={tab}
           autoEditable={readQuery().auto === '1'}
-          onTabChange={setTab}
           /* ⑤确认设计：只给「生成前 3 页预览 → 确认设计」；⑥生成页面才放开全量（真门禁） */
           stage={step === 6 ? 'generate' : 'design'}
           onDesignConfirmed={() => goto(6)}

@@ -27,11 +27,8 @@ export interface ProjectWorkbenchProps {
   defaultSize?: string
   /** 参与生成的页号；缺省 = 已解析出的全部页 */
   pageNos?: number[]
-  /** generate：只看生成结果；editable：只看按图片版重建；both：带页签（默认） */
+  /** generate / both：只看生成结果；editable：只看按图片版重建（独立流程用，不渲染页签） */
   view?: 'generate' | 'editable' | 'both'
-  /** 受控页签（向导用步骤条驱动）：传入即受控，切换时回调 onTabChange */
-  tab?: 'generate' | 'editable'
-  onTabChange?: (tab: 'generate' | 'editable') => void
   /** 首页模式② 一键流：进入即自动勾选并开始逐页精细重建（同一标签会话只触发一次） */
   autoEditable?: boolean
   /** 向导⑤确认设计：只允许「生成前 N 页预览 + 确认设计」；⑥生成页面才放开全量（真门禁的另一半） */
@@ -46,8 +43,6 @@ export function ProjectWorkbench({
   defaultSize = '2K',
   pageNos,
   view = 'both',
-  tab: controlledTab,
-  onTabChange,
   autoEditable = false,
   stage = 'generate',
   onDesignConfirmed,
@@ -55,13 +50,6 @@ export function ProjectWorkbench({
   const toast = useToast()
   /** 尺寸仍按向导传入的 defaultSize 生效；改尺寸的下拉随「生成页面」卡片一起移除，故只读 */
   const [size] = useState<string>(SIZES.includes(defaultSize as '2K') ? defaultSize : '2K')
-  const [innerTab, setInnerTab] = useState<'generate' | 'editable'>(view === 'editable' ? 'editable' : 'generate')
-  const tab = controlledTab ?? innerTab
-  const setTab = (t: 'generate' | 'editable') => {
-    setInnerTab(t)
-    onTabChange?.(t)
-  }
-
   const [genInfo, setGenInfo] = useState<GenerationJob | null>(null)
   const [genJobId, setGenJobId] = useState<string | null>(null)
   const [recovering, setRecovering] = useState(true)
@@ -341,27 +329,9 @@ export function ProjectWorkbench({
 
   return (
     <div className="flex flex-col gap-4">
-      {view === 'both' && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="flex-1" />
-          {(['generate', 'editable'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={cn('chip h-8! text-body-sm', tab === t && 'is-active')}
-              onClick={() => setTab(t)}
-              aria-pressed={tab === t}
-            >
-              {t === 'generate' ? '生成结果' : '按图片版重建'}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {view !== 'editable' && (view === 'generate' || tab === 'generate') ? generatePanel : null}
-      {view !== 'generate' && (view === 'editable' || tab === 'editable') ? (
-        <EditableWorkbench projectId={projectId} autoStart={autoEditable} />
-      ) : null}
+      {/* 「按图片版重建」已独立成三步流程（#/editable）：这里不再提供页签，默认就是生成结果 */}
+      {view !== 'editable' ? generatePanel : null}
+      {view === 'editable' ? <EditableWorkbench projectId={projectId} autoStart={autoEditable} /> : null}
 
 
 
