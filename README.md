@@ -31,7 +31,7 @@ macOS 首次启动会自动安装其余依赖。Windows 按使用说明中的 Po
 
 启动后打开 **http://127.0.0.1:8641**。Windows 运行时保持 PowerShell 窗口打开，按 Ctrl+C 停止。
 
-[图文使用说明](docs/使用说明.md) · [PDF](docs/使用说明.pdf) · [Word](docs/使用说明.docx) · [HTML 阅读版](docs/使用说明.html)
+[图文使用说明](docs/使用说明.md) · [PDF](docs/使用说明.pdf) · [Word](docs/使用说明.docx) · [HTML 阅读版](docs/使用说明.html) · [Markdown 配图包](docs/SlideCraft-使用手册-Markdown.zip)
 
 ## 能做什么
 
