@@ -8,7 +8,7 @@ import { EmptyState, ErrorState, Loading, Notice } from '../components/StateBloc
 import { SlideThumb, ThumbGrid } from '../components/ThumbGrid'
 import { useToast } from '../components/Toast'
 import { cn, MAX_UPLOAD_BYTES, uploadTooLarge } from '../lib/format'
-import { Link } from '../router'
+import { Link, readQuery } from '../router'
 import type { Project, Slide } from '../types'
 
 const EDITABLE_STEPS: FlowStep[] = [
@@ -38,7 +38,13 @@ export function EditableFlowPage({ projectId }: { projectId: string }) {
       const [nextProject, nextSlides] = await Promise.all([getProject(projectId), getSlides(projectId)])
       setProject(nextProject)
       setSlides(nextSlides.filter(slide => slide.image_url))
-      setStep(current => (nextSlides.some(slide => slide.image_url) && current === 1 ? 2 : current))
+      setStep((current): 1 | 2 | 3 => {
+        const hasImages = nextSlides.some(slide => slide.image_url)
+        if (!hasImages) return current
+        // 从「生成页面」的「转可编辑 PPT」直接进入转换页（已生成的项目不需要再走上传/页面确认）
+        if (readQuery().step === '3') return 3
+        return current === 1 ? 2 : current
+      })
     } catch (e) {
       setError((e as ApiError)?.detail || '项目加载失败')
       setErrorObject(e as ApiError)

@@ -51,7 +51,7 @@
 | GET | `/api/editable-engines` | **「图片转可编辑」唯一的引擎**：`{"engines":[{"id":"editppt","ok":true,"seconds_per_page":780,"cli":"…","skill_dir":"…","reason":"可用"}]}`。内置引擎（一次视觉识别 + 本地渲染）已于 2026-09-21 下线：`ok=false` 时 `reason` 说明缺哪一件（CLI / skill 目录 / agent CLI：默认 Harness `dsh`，可用 `editppt.agent=hermes` 切回 Hermes），界面如实报错且**不回退**。 |
 | POST | `/api/projects/{id}/editable` | **图片转可编辑**：body `{"page_nos":[1,2],"engine":"editppt","resume":false}`（engine 只接受 `editppt`，传 `builtin` → 400 提示已下线）→ `{"job_id":"…","engine":"editppt","estimate":{…},"mode":"editppt_skill"}`。<br>驱动第三方 skill `image-to-editable-ppt` 的状态机（prepare → **用 `run next --json` 决策** → 并发 dispatch → Harness headless 作 page worker 写 manifest → `page build/validate` → `run record` → `run finalize`）；默认并发 2 页（`editppt.max_concurrent_pages` 可配，skill 上限 6）、实测约 13 分钟/页、产物自带 `validation.json` 校验，**只含所转页面**；任一页校验不过 → 保留已完成页与现场、如实报错（可续跑），失败明细含页码/阶段/原因。`resume=true` 复用最近一次未完成的 run 现场（跳过已记录页）。<br>**文字真源**：有真源（生成/美化）写标准 `text_hints.json` 的 `text`；没有真源时依次尝试 skill 的 PaddleOCR hints、本机 **RapidOCR** 离线 OCR（`server/pptx/editppt_ocr.py`）；全不可用时如实失败并提示配置 OCR。<br>**前端**：首页「图片转可编辑」上传原页后进入独立的 **`#/editable/{id}` 三步流程**（① 上传内容 → ② 页面确认 → ③ 转换结果），不再套用生成向导的 5/6 步；项目列表里 `flow=editable` 的项目也恢复到这 3 步。第③步由 `EditableWorkbench` 选页并开始精细重建，可停止/继续/下载。 |
 | GET | `/api/projects/{id}/export?kind=image` | 导出**图片版 PPTX**（同步返回文件）：`{"kind":"image","file":"/files/exports/xxx_image.pptx","size_bytes":123456,"pages":13,"editable_pages":[]}` |
-| GET | `/api/projects/{id}/export?kind=editable` | **已下线**（随内置引擎一并移除）：请求该 kind → **400** 并提示改用工作台「按图片版重建」页签的 `kind=editable_hi` 产物。旧 `pipeline.do_export(pid,'editable')` 也已下线，同样提示走 editppt 精细重建。 |
+| GET | `/api/projects/{id}/export?kind=editable` | **已下线**（随内置引擎一并移除）：请求该 kind → **400** 并提示改用「图片转可编辑」模块（`#/editable`）的 `kind=editable_hi` 产物。旧 `pipeline.do_export(pid,'editable')` 也已下线，同样提示走 editppt 精细重建。 |
 | GET | `/api/projects/{id}/export?kind=editable_hi` | 取**精细重建产物**（第三方 skill，仅含已转页）：`{"kind":"editable_hi","engine":"editppt","file":"…","pages":2,"editable_pages":[1,2],"size_bytes":…,"note":"…仅含已转换页面…"}`；未转换过 → **400** 并提示先去「图片转可编辑」转换。 |
 | GET | `/files/{path}` | 静态文件（原稿、页面图、导出件） |
 
@@ -89,15 +89,15 @@
 
 ## 7. 前端页面清单（MVP）
 
-1. **生成向导**（五步）：① 输入内容 → ② 页面确认（条件梳理子步骤）→ ③ 内容确认 → ④ 选择风格 → ⑤ 生成结果（含按图片版重建页签）。项目步骤路由与解锁条件见文末 M1 契约。
+1. **生成向导**（六步）：① 输入内容 → ② 编辑大纲 / 页面确认（无结构化内容时含梳理子步骤）→ ③ 内容确认 → ④ 选择风格 → ⑤ 确认设计（先跑前 3 页预览）→ ⑥ 生成页面。生成完成后第⑥步底部提供 **「转可编辑 PPT」**（直达 `#/editable/{id}` 转换页）与 **「下载图片集 PPT」**（按页整页图铺底导出 PPTX；若还有未核对页，会先弹一次确认并把这些页标记为已核对）。项目步骤路由与解锁条件见文末 M1 契约。
 2. **PPT 备注**（`#/notes`）：① 拖拽上传已有 .pptx（秒回页清单）→ ② 画面识别（auto/all/off，逐页可核验识别结果）→ ③ 写备注（可填一句要求）→ ④ 导出（写回备注栏的副本）→ ⑤ 逐页复核/手改/**写提示词让 AI 重写这一页**
-3. **项目**：列表 + 按实际阶段恢复五步工作区（⑤保留生成结果 / 按图片版重建两个页签）；卡片「…」菜单可重命名 / 查看用量 / **删除项目**（二次确认弹窗，删除不可撤销；有任务在跑时后端 409 拒绝）
+3. **项目**：列表 + 按实际阶段恢复工作区（向导项目恢复 ⑤/⑥，第⑥步可直接「转可编辑 PPT」/「下载图片集 PPT」；`flow=editable` 的项目进 `#/editable/{id}` 三步流程）；卡片「…」菜单可重命名 / 查看用量 / **删除项目**（二次确认弹窗，删除不可撤销；有任务在跑时后端 409 拒绝）
 4. **风格**：风格卡网格（分类筛选）+ 详情（布局/预览/色板）
 5. **用量**：本月成本 + 按动作/供应商汇总 + 明细表（数字等宽）
 6. **设置**：供应商 key 填写（掩码回显）+ 连通性测试 + 网络模式（http_proxy/tun/none）+ 文本模型
 
-> 首页模式②「图片转可编辑」= 内嵌上传（渲染原页）→ 落到工作台「按图片版重建」页签；不再单开独立页面。
-> 该页签只有一条引擎（第三方 skill 精细重建），内置引擎（本地渲染）已于 2026-09-21 下线。
+> 首页模式②「图片转可编辑」= 内嵌上传（渲染原页）→ 进入独立的 `#/editable/{id}` 三步流程（① 上传内容 → ② 页面确认 → ③ 转换结果）；生成向导第⑥步的「转可编辑 PPT」也直达该页第③步。
+> 该流程只有一条引擎（第三方 skill 精细重建），内置引擎（本地渲染）已于 2026-09-21 下线。
 
 ## 8. MVP 的降级约定（必须实现，验收 17）
 
@@ -160,7 +160,7 @@ mode 仅允许 `img2img` 与 `redesign`，非法值返回 400。img2img 参考�
 - `POST /api/projects/{id}/outline`：显式执行梳理；已有同页记录保留 id，继承待确认清单的标题/布局/保留标记；保留已有图片资产，不自动重新生成。梳理后需重新确认页面、内容。
 - `GET /api/projects/{id}/slides`：每页增加 `slide_id`（slides.id，稳定身份）、`source_page_no`（可空；未知映射不推测）、`display_order`（旧记录回退 page_no）。保留 `page_no` 用于展示、排序与既有任务接口。新文档切页记录没有可验证的原稿页映射，因此 source_page_no 为 NULL。
 - 新列通过幂等迁移追加，旧记录均允许 NULL。项目账本仍关联 project_id；改名后的下一次图片/精细重建导出使用当前项目名称。
-- 工作区步骤：生成向导五步 ① 输入内容 → ② 页面确认（无结构化内容时包含显式梳理子步骤）→ ③ 内容确认 → ④ 选择风格 → ⑤ 生成结果（含「按图片版重建」页签）。路径 `#/wizard/{id}/{1..5}` 可刷新/直链；`#/projects/{id}` **按项目真实所属流程恢复上一次执行到的步骤**——`flow=beautify` 的项目进入 PPT 美化六步（有已生成页 → ⑤生成结果，跑过但无产出 → ③内容梳理，从未跑过 → ②页面确认，作业运行中则订阅同一作业；⑤完成后可进⑥「转可编辑」），其它项目进入生成向导并按 `resume_step` 跳步；两条入口的布局与「PPT 生成」里对应步骤完全一致。图片转可编辑的入口为 `#/editable/{id}`（三步）；保留 `#/?style={id}` 预选风格入口（仍需输入和确认）。
+- 工作区步骤：生成向导六步 ① 输入内容 → ② 编辑大纲 / 页面确认（无结构化内容时包含显式梳理子步骤）→ ③ 内容确认 → ④ 选择风格 → ⑤ 确认设计 → ⑥ 生成页面。路径 `#/wizard/{id}/{1..6}` 可刷新/直链；`#/projects/{id}` **按项目真实所属流程恢复上一次执行到的步骤**——`flow=beautify` 的项目进入 PPT 美化六步（有已生成页 → ⑤生成结果，跑过但无产出 → ③内容梳理，从未跑过 → ②页面确认，作业运行中则订阅同一作业；⑤完成后可进⑥「转可编辑」），其它项目进入生成向导并按 `resume_step` 跳步；两条入口的布局与「PPT 生成」里对应步骤完全一致。图片转可编辑的入口为 `#/editable/{id}`（三步）；保留 `#/?style={id}` 预选风格入口（仍需输入和确认）。
 
 ## M2 页面、内容修订与人工核对
 
@@ -171,7 +171,7 @@ mode 仅允许 `img2img` 与 `redesign`，非法值返回 400。img2img 参考�
 - `PATCH /projects/{id}` 的 `confirm_content:true` 必须有选中页，且每页有标题和正文 / 要点 / 有内容的模块。内容确认只保存人工确认状态，不生成。`POST /generate` 支持 `content_revisions:{slide_id:revision}`：不匹配 409，未人工确认 / 不完整 / 已排除页返回 400；整套生成要求所有选中页就绪。旧接口未传修订仍兼容；旧项目 NULL 确认字段保留兼容口径，新向导必须明确确认。单页 regenerate 也检查内容确认与该页就绪状态。
 - Slide 增加 `content_revision`、`generated_revision`、`modules`、`source_note`、`source_content`、`generated_content`、`source_available`、`content_ready`、`content_stale`、`config_stale`、`review_required`、`material_strategy`。源侧 `verify` 增加 `scope:"source_only",image_verified:false`，历史 `text_accuracy` 不代表生成图片已验证。老项目图片基线以初始修订 1 比较；风格 / 尺寸不一致通过生成时保存的配置判断，旧图片无配置记录则不猜测。
 - 生图记录使用独立资产文件名，保存生成时的内容修订与输入快照。编辑内容保留当前旧图；生成不删除旧资产。这里只支持当前结果与原文核对，不提供 M5 的完整历史版本管理。数据页 `data_chart` 复用 `render_native.mjs` 绘制同单位原文数值与坐标轴，再通过 LibreOffice + PyMuPDF 转 PNG，不调用生图模型。转换器不可用时呈现原文文字、来源和未绘制图表的提示，费用 0；其它图片布局只允许模型呈现原文数据文字，不绘制数据坐标轴。缺失 / 待统计系列不画，绝不 `Number(null)` 变成 0。
-- `POST /api/projects/{pid}/slides/{slide_id}/review`：body `{image_url}`，用户逐项核对原文与图片后确认。尚无结果 400，图片已更新 409，成功 `{ok:true}`；绑定当前资产路径，重新生成后失效。`export?kind=image|editable_hi` 在任何选中生成图片尚未核对时返回 400；导入原稿图片不要求生成核对，美化独立路由保持原逻辑。图片版导出仅包含 keep=1 的页。
+- `POST /api/projects/{pid}/slides/{slide_id}/review`：body `{image_url}`，用户逐项核对原文与图片后确认。尚无结果 400，图片已更新 409，成功 `{ok:true}`；绑定当前资产路径，重新生成后失效。`export?kind=image|editable_hi` 在任何选中生成图片尚未核对时返回 400；导入原稿图片不要求生成核对，美化独立路由保持原逻辑。图片版导出仅包含 keep=1 的页。**前端**：第⑥步「下载图片集 PPT」在还有未核对页时弹一次确认（提示需逐页核对），确认后调用本接口批量标记，再请求 `export?kind=image`。
 - 前端逐页与项目配置分别显示未保存 / 正在保存 / 已保存 / 保存失败；已保存仅来自服务端确认。保存队列串行，旧响应不覆盖更新的编辑；下一步、页面切换、导航（含后退）等待保存，失败停留并可重试，关闭 / 刷新有 beforeunload 保护。本机草稿按 `local-account + project_id + slide_id` 隔离，配置草稿使用 project 槽位；本系统无登录账户，`local-account` 明确指当前安装的本机使用身份，不声称具备跨账号身份隔离。内容冲突草稿保留，可重新加载后显式采用草稿；保存重试不提交生成。
 - 数值清单仅比较原文与生成输入中的数字 / 单位 / 年份 / 待统计；图片文字没有 OCR 自动核验。结果始终先标「待核对」，用户对照原稿 / 真源与图片后手工确认。
 

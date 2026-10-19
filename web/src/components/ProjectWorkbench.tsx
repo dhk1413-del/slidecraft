@@ -7,7 +7,7 @@ import { } from '../api'
  * 向导页（#/wizard 第 ⑤ 步）与项目工作台页（#/projects/:id）共用本组件。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, SubmissionCancelled, restoreSlideVersion, getProjectJobs, generate, getSlides, regenerateSlide } from '../api'
+import { ApiError, SubmissionCancelled, exportDeck, restoreSlideVersion, reviewSlide, getProjectJobs, generate, getSlides, regenerateSlide } from '../api'
 import { useJobStream } from '../hooks/useJobStream'
 import { useSlides } from '../hooks/useSlides'
 import { cn, ms } from '../lib/format'
@@ -54,6 +54,7 @@ export function ProjectWorkbench({
   const [genJobId, setGenJobId] = useState<string | null>(null)
   const [recovering, setRecovering] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [genError, setGenError] = useState<ApiError | null>(null)
   /** 结果查看：当前页下标 / 缩略总览开关 / 放大灯箱（与 PPT 美化同一套共用件） */
   const [current, setCurrent] = useState(0)
@@ -199,6 +200,40 @@ export function ProjectWorkbench({
     } finally {setSubmitting(false)}
   }
 
+  /**
+   * 下载图片版 PPT：逐页整页图铺底。
+   * 后端硬前置是「选中页都已人工核对」——所以还有未核对页时，先让用户确认已逐页看过，再标记并导出。
+   */
+  async function downloadImageDeck() {
+    if (running || downloading || !generatedPages.length) return
+    setDownloading(true)
+    try {
+      const pending = slides.filter((slide) => slide.keep && slide.review_required && slide.image_url)
+      if (pending.length) {
+        const confirmed = window.confirm(
+          `还有 ${pending.length} 页尚未人工核对。\n\n请先逐页对照原文确认画面无误；点「确定」表示这些页面都已核对，系统会标记后导出图片版 PPT。`,
+        )
+        if (!confirmed) return
+        await Promise.all(pending.map((slide) => reviewSlide(projectId, slide.slide_id, slide.image_url)))
+        slidesState.reload()
+      }
+      const res = await exportDeck(projectId, 'image')
+      if (!res.file) throw new ApiError('导出没有返回文件地址，请稍后重试', 0)
+      const link = document.createElement('a')
+      link.href = res.file
+      link.download = ''
+      document.body.append(link)
+      link.click()
+      link.remove()
+      toast.success('已生成图片版 PPT', `共 ${res.pages} 页`)
+    } catch (e) {
+      const error = e instanceof ApiError ? e : new ApiError(e instanceof Error ? e.message : String(e), 0)
+      toast.error('导出图片版失败', error.detail)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   /* ---------- 结果查看：左页栏 + 单页大图 + 逐页就地操作（与 PPT 美化同一套共用件） ---------- */
   const viewer = slides.length > 0 ? (
     <div className="deck-split">
@@ -284,6 +319,15 @@ export function ProjectWorkbench({
   const previewPages = targetPages.slice(0, Math.min(3, targetPages.length))
   const previewReady = generatedPages.length > 0
 
+  /** 导出图片版 PPT 的可用性与原因（缺页 / 生成中都不能导出；逐页核对在点击时统一确认） */
+  const missingImages = slides.filter((slide) => slide.keep && !slide.image_url)
+  const canDownload = !running && !downloading && generatedPages.length > 0 && missingImages.length === 0
+  const downloadTitle = running
+    ? '生成中：等任务结束再导出'
+    : missingImages.length
+      ? `还有 ${missingImages.length} 页未生成完成，暂不能导出`
+      : '导出图片版 PPTX（整页图铺底；未核对的页会先提示你确认）'
+
   const generatePanel = (
     <div className="flex flex-col gap-4">
       {stage === 'design' && running && <Notice kind="info">后台任务运行中，可查看原稿、已完成结果及项目列表；暂不能修改任务页面或重复提交。</Notice>}
@@ -319,7 +363,15 @@ export function ProjectWorkbench({
             ? <button type="button" className="btn btn-primary rounded-full" disabled={running} title="设计已确认，进入第⑥步生成全部页面" onClick={() => onDesignConfirmed?.()}>{running ? '生成中…' : '确认设计，进入生成页面 ›'}</button>
             : <button type="button" className="btn btn-primary rounded-full" disabled={running || !stylePackId || !previewPages.length || slides.some(s => s.keep && !s.content_ready)} title={!stylePackId ? '未选择风格包：请先在向导里选择风格' : `先跑前 ${previewPages.length} 页预览，确认后再生成全部页面`} onClick={() => void startGenerate(previewPages)}>{submitting ? '提交中…' : `生成前 ${previewPages.length} 页预览`}</button>
         ) : (
-          <button type="button" className="btn btn-primary rounded-full" disabled={running || !stylePackId || !targetPages.length || slides.some(s => s.keep && !s.content_ready)} title={!stylePackId ? '未选择风格包：请先在向导里选择风格' : '提交 POST /api/projects/{id}/generate'} onClick={() => void startGenerate()}>{submitting ? '提交中…' : genJobId ? `重新生成参与页（${targetPages.length} 页）` : `生成参与页（${targetPages.length} 页）`}</button>
+          <>
+            <button type="button" className={cn('btn rounded-full', generatedPages.length > 0 ? 'btn-secondary' : 'btn-primary')} disabled={running || !stylePackId || !targetPages.length || slides.some(s => s.keep && !s.content_ready)} title={!stylePackId ? '未选择风格包：请先在向导里选择风格' : '提交 POST /api/projects/{id}/generate'} onClick={() => void startGenerate()}>{submitting ? '提交中…' : genJobId ? `重新生成参与页（${targetPages.length} 页）` : `生成参与页（${targetPages.length} 页）`}</button>
+            {generatedPages.length > 0 && (
+              <>
+                <Link className="btn btn-secondary rounded-full" to={`/editable/${projectId}?step=3`} title="进入「图片转可编辑」：把这些页面逐页精细重建为可编辑对象（每页约 13 分钟，可随时停止）">转可编辑 PPT</Link>
+                <button type="button" className="btn btn-primary rounded-full" disabled={!canDownload} title={downloadTitle} onClick={() => void downloadImageDeck()}>{downloading ? '正在导出…' : '下载图片集 PPT'}</button>
+              </>
+            )}
+          </>
         )}
       </ActionBar>}
 
