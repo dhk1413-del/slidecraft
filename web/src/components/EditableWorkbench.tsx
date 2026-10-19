@@ -201,7 +201,7 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
         </div>
         {(currentRunning || currentQueued) && (
           <div className="absolute inset-0 flex items-center justify-center rounded-[18px] bg-white/75 p-4 backdrop-blur-sm">
-            <div className="card flex w-full max-w-md flex-col items-center gap-3 text-center">
+            <div className="card flex w-full max-w-[28rem] flex-col items-center gap-3 text-center">
               {currentRunning ? <span className="deck-spinner" aria-hidden="true" /> : <span className="beautify-live-dot" aria-hidden="true" />}
               <p className="m-0 text-body-lg font-semibold">{currentRunning ? '正在精细重建本页…' : '排队中，等待前序页面完成…'}</p>
               <p className="m-0 text-body-sm text-ink-sub">
