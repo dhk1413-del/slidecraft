@@ -7,7 +7,7 @@ import { } from '../api'
  * 向导页（#/wizard 第 ⑤ 步）与项目工作台页（#/projects/:id）共用本组件。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, SubmissionCancelled, restoreSlideVersion, getProjectJobs, generate, getSlides, reviewSlide, regenerateSlide } from '../api'
+import { ApiError, SubmissionCancelled, restoreSlideVersion, getProjectJobs, generate, getSlides, regenerateSlide } from '../api'
 import { useJobStream } from '../hooks/useJobStream'
 import { useSlides } from '../hooks/useSlides'
 import { cn, ms } from '../lib/format'
@@ -19,15 +19,6 @@ import { EmptyState, ErrorState, Loading, Notice, NotConfiguredBanner } from './
 import { useToast } from './Toast'
 
 const SIZES = ['2K', '4K'] as const
-
-function numberFacts(value:unknown):string[] {
-  return [...new Set(JSON.stringify(typeof value==='object'&&value!==null&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).filter(([key])=>['title','outline','subtitle','points','modules','source_note','must_keep'].includes(key))):value || '').match(/-?\d+(?:\.\d+)?\s*(?:%|％|个百分点|万元|亿元|元|万人|人|个|年|月|天|小时|分钟|吨|万|亿)?|待统计/g) || [])]
-}
-function FactCheck({slide}:{slide:Slide}) {
-  const source=numberFacts(slide.source_content || {title:slide.title,outline:slide.outline,points:slide.points,modules:slide.modules})
-  const generated=numberFacts(slide.generated_content)
-  return <div><p>原文数值核对清单（仅比较文字输入，未识别图片中的数值）</p><div className="flex flex-wrap gap-2">{source.map(f=><span key={f} className="tag num">{f} · {generated.includes(f)?'生成输入含此值':'生成输入缺少此值，需核对'}</span>)}{generated.filter(f=>!source.includes(f)).map(f=><span key={f} className="tag num">{f} · 原文未匹配，需核对</span>)}</div><p>来源、合计及数值所属项目须结合上方原文核对；清单匹配不代表图片正确。</p></div>
-}
 
 export interface ProjectWorkbenchProps {
   projectId: string
@@ -283,22 +274,6 @@ export function ProjectWorkbench({
               {currentSlide.content_stale && <div className="mt-2 flex flex-wrap items-center gap-2"><span>基于旧内容，当前保存内容已更新；请先在内容步骤确认新内容。</span><Link className="btn btn-secondary" to={`/wizard/${projectId}/3`}>查看并确认新内容</Link><button type="button" className="btn btn-secondary" disabled={running} onClick={() => void optimize(currentSlide.page_no)}>按新内容重新生成</button></div>}
             </div>)}
 
-          {currentSlide.image_url && (
-            <div className="panel-alt">
-              <p className="num m-0">原稿 / 内容真源（数字、百分比、单位、年份、来源、合计与待统计均需逐项核对）</p>
-              <div className="mt-2 grid gap-3 md:grid-cols-2">
-                <div>
-                  {currentSlide.source_page_no && <img className="w-full" src={`/api/projects/${encodeURIComponent(projectId)}/source-pages/${currentSlide.source_page_no}?w=1100`} alt="原稿" />}
-                  <pre className="whitespace-pre-wrap text-body-sm">{JSON.stringify(currentSlide.source_content || { title: currentSlide.title, outline: currentSlide.outline, points: currentSlide.points, modules: currentSlide.modules, source_note: currentSlide.source_note }, null, 2)}</pre>
-                  {currentSlide.content_stale && <><p>当前已保存内容</p><pre className="whitespace-pre-wrap text-body-sm">{JSON.stringify({ title: currentSlide.title, outline: currentSlide.outline, points: currentSlide.points, modules: currentSlide.modules, source_note: currentSlide.source_note }, null, 2)}</pre></>}
-                  <p>本次生成输入</p><pre className="whitespace-pre-wrap text-body-sm">{JSON.stringify(currentSlide.generated_content, null, 2)}</pre>
-                </div>
-                <div><p>生成结果 · 图片文字与数值未自动验证</p><img className="w-full" src={currentSlide.image_url} alt={`第 ${currentSlide.page_no} 页生成结果`} /></div>
-              </div>
-              <FactCheck slide={currentSlide} />
-              <p>逐项核对原文与图片：数字、单位、年份、合计、来源；「待统计」应保留为缺失，不能变成 0。</p>
-              {currentSlide.review_required && <button type="button" className="btn btn-secondary" onClick={async () => { try { await reviewSlide(projectId, currentSlide.slide_id, currentSlide.image_url); slidesState.reload() } catch (e) { toast.error('核对确认失败', (e as ApiError).detail) } }}>已逐项核对，确认此结果</button>}
-            </div>)}
         </>}
       </section>
     </div>
@@ -323,7 +298,7 @@ export function ProjectWorkbench({
 
   const generatePanel = (
     <div className="flex flex-col gap-4">
-      {running && <Notice kind="info">后台任务运行中，可查看原稿、已完成结果及项目列表；暂不能修改任务页面或重复提交。</Notice>}
+      {stage === 'design' && running && <Notice kind="info">后台任务运行中，可查看原稿、已完成结果及项目列表；暂不能修改任务页面或重复提交。</Notice>}
       {genError && <ErrorState error={genError} onRetry={startGenerate} title="提交生成失败" />}
 
       {genInfo && !genInfo.configured && (
