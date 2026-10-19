@@ -65,10 +65,10 @@ make release-check        # 版本一致 + key 门禁（含全历史）
 make verify-fast          # 离线回归（注意：m5 目前有一处既有失败，见 CHANGELOG 已知问题）
 # 3) 提交推送
 git add -A && git commit -m "release: v$(cat VERSION)"
-git -c http.proxy=http://127.0.0.1:65532 push origin main
+git -c http.proxy= -c https.proxy= push origin main     # 直连可用；失败再试 -c http.proxy=http://127.0.0.1:65532
 # 4) 打附注标签（不可变）并推标签
 git tag -a v$(cat VERSION) -m "SlideCraft v$(cat VERSION)"
-git -c http.proxy=http://127.0.0.1:65532 push origin --follow-tags
+git -c http.proxy= -c https.proxy= push origin --follow-tags
 # 5) 建 Release：本机没装 gh，用网页 Releases → Draft a new release，说明粘 RELEASE_NOTES.md
 ```
 
@@ -122,8 +122,10 @@ git -c http.proxy=http://127.0.0.1:65532 push origin --follow-tags
   旧地址 301 跳转到新地址；本机 `origin` 已指向新地址，`main` 与 `origin/main` 同步。
   项目**显示名**是 SlideCraft，但 `DECKFORGE_*` 环境变量、`deckforge.db`、`deckforge.pid`、浏览器 localStorage 键
   一律**保持原名不动**（见 README「名称兼容」）——改名只改看得见的文案，动标识会丢用户数据。
-- 代理：**7897 已失效**，当前可用的是 `http://127.0.0.1:65532`（GitHub 推送走它）；
-  GitHub 直连时通时断，推送一律带 `-c http.proxy=http://127.0.0.1:65532`。
+- 代理：**7897 已失效**；`http://127.0.0.1:65532` 曾长期可用，但 **2026-10-19 实测已不转发**
+  （TCP 能连、HTTPS 出站超时，git push 报 SSL_ERROR_SYSCALL / HTTP2 framing layer）。
+  目前 **GitHub 直连可用**（实测 1 秒内 200）：推送先直连
+  `git -c http.proxy= -c https.proxy= push origin main`，失败再试带代理。
 - GitHub 推送凭据存在 macOS 钥匙串：`security find-generic-password -a dhk1413-del -s deckforge-github-token -w`
   （钥匙串条目名沿用了旧名，是登录凭据、与密钥红线无关；token 不落明文，撤销走 GitHub Settings → Applications）。
 - `web/node_modules` 已存在，构建**不需要联网**
