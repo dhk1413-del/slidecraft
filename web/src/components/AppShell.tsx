@@ -10,6 +10,7 @@ import {
   IconSliders,
   IconSparkles,
 } from './Icons'
+import { BrandMark } from './BrandMark'
 import { ProviderHealth, ProviderStatus } from './ProviderStatus'
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>
@@ -32,10 +33,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* 左侧边栏 */}
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-[228px] flex-col overflow-y-auto border-r border-border bg-surface px-3 py-3 md:flex">
         <Link to="/" className="flex items-center gap-2 px-2 no-underline">
-          <span
-            className="brand-mark inline-block h-7 w-7 rounded-md"
-            aria-hidden="true"
-          />
+          <BrandMark className="h-7 w-7 shrink-0" />
           <span className="text-h3 font-semibold text-ink">SlideCraft</span>
         </Link>
 
