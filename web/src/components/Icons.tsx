@@ -117,3 +117,14 @@ export function IconChevronRight(props: IconProps) {
     </Base>
   )
 }
+
+/** 上传：托盘 + 上箭头（首页上传区） */
+export function IconUpload(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M12 15.4V5.2" />
+      <path d="M8.2 8.9L12 5.1l3.8 3.8" />
+      <path d="M5 14.6v3a1.9 1.9 0 0 0 1.9 1.9h10.2a1.9 1.9 0 0 0 1.9-1.9v-3" />
+    </Base>
+  )
+}

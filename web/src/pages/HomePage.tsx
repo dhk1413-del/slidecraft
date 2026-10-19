@@ -134,10 +134,13 @@ export function HomePage() {
 
   return (
     <div className="flex flex-col gap-4">
-      {!beautifyWorkbench && <div>
-        <h2 className="m-0 text-h2 font-semibold">生成演示文稿</h2>
-      </div>}
-      <section id="generation-modes" className={cn('scroll-mt-20', !beautifyWorkbench && 'band')}>
+      {/* 首页大标题（参考版式）：两行居中，下面接上传卡 */}
+      {!beautifyWorkbench && (
+        <header className="home-hero">
+          <h1 className="m-0">专业PPT设计机构出品<br />顶尖图片生成AI模型加持</h1>
+        </header>
+      )}
+      <section id="generation-modes" className={cn('scroll-mt-20', !beautifyWorkbench && 'gen-shell')}>
         <div className={cn('grid gap-5', !beautifyWorkbench && 'md:grid-cols-[168px_1fr]')}>
           {!beautifyWorkbench && <div className="mode-rail" role="tablist" aria-label="生成方式" aria-orientation="vertical">
             {MODES.map((m) => (
@@ -155,7 +158,7 @@ export function HomePage() {
           </div>}
 
           {/* 功能框：固定高度，三个模式互相切换时尺寸不跳动；内容更高时在框内滚动 */}
-          <div className="mode-panel min-w-0">
+          <div className={cn('mode-panel min-w-0', beautifyWorkbench && 'is-workbench')}>
             {mode === 'topic' && <TopicPanel pickedPack={pickedPack} pickedName={packOptions.find((p) => p.id === pickedPack)?.name} />}
             {mode === 'editable' && <EditablePanel />}
             {mode === 'reskin' && <BeautifyPanel packs={packOptions} loadingPacks={packs.loading} onStepChange={setBeautifyStep} initialStylePackId={pickedPack} />}
@@ -245,6 +248,7 @@ function TopicPanel({ pickedPack, pickedName }: { pickedPack: string | null; pic
 
       <div className="gen-panel-drop">
         <Dropzone
+          icon
           head="拖入文档，开始生成 PPT"
           hint="点击此处选择文件"
           formats={`TXT · MD · DOCX · PDF · PPTX · ${UPLOAD_SIZE_HINT}`}
@@ -321,6 +325,7 @@ function EditablePanel() {
 
       <div className="gen-panel-drop">
         <Dropzone
+          icon
           multiple
           head="拖入 PDF / 图片 / pptx（可多选，按顺序成册）"
           hint="点击此处选择文件"

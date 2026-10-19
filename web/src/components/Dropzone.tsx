@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { clipboardImages } from '../lib/clipboard'
 import { cn } from '../lib/format'
+import { IconUpload } from './Icons'
 
 /** 输入框 / 可编辑区域里的粘贴不接手（那里粘贴文本是正常操作，不能被当成上传图片） */
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -11,7 +12,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 export function Dropzone({
-  head, hint, formats, accept, multiple, paste, onPick,
+  head, hint, formats, accept, multiple, paste, icon, onPick,
 }: {
   head: string
   hint: string
@@ -20,6 +21,8 @@ export function Dropzone({
   multiple?: boolean
   /** 支持粘贴上传（窗口级）：截图后不用先点上传区，直接 ⌘V / Ctrl+V；文本粘贴不受影响 */
   paste?: boolean
+  /** 顶部上传图标块（首页参考版式用；其他页面默认不显示，保持原紧凑样式） */
+  icon?: boolean
   onPick: (files: File[]) => void
 }) {
   const [over, setOver] = useState(false)
@@ -69,6 +72,11 @@ export function Dropzone({
         if (e.key === 'Enter' || e.key === ' ') openPicker()
       }}
     >
+      {icon && (
+        <span className="df-drop-icon" aria-hidden="true">
+          <IconUpload className="h-6 w-6" />
+        </span>
+      )}
       <div className="text-h3">{head}</div>
       <div className="mt-1 text-body-sm text-ink-sub">{hint}</div>
       <div className="mt-2 text-caption text-ink-muted">{formats}</div>
