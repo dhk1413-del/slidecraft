@@ -5,7 +5,7 @@
 
 没有配置任何模型密钥时，大纲走本地规则切页、出图走本地兜底渲染，费用为 0，流程和导出都能走通。
 
-当前版本 **v0.2.0** —— 仓库：<https://github.com/dhk1413-del/slidecraft> ·
+当前版本 **v0.3.0** —— 仓库：<https://github.com/dhk1413-del/slidecraft> ·
 版本发布页（下载 / 变更说明）：<https://github.com/dhk1413-del/slidecraft/releases> ·
 变更记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -124,7 +124,7 @@ config/          供应商配置模板
 
 ## 版本
 
-版本号**唯一真源**是仓库根的 [`VERSION`](VERSION) 文件（当前 `0.2.0`）：
+版本号**唯一真源**是仓库根的 [`VERSION`](VERSION) 文件（当前 `0.3.0`）：
 
 - `server/app/main.py` 直接读它，`GET /api/health` 返回的 `version` 就是它；
 - `web/package.json` 的 `version` 受 npm 约束必须是字面量，由 `tools/check_version_sync.py` 在门禁里强制对齐（连同 `CHANGELOG.md` 首条版本一起校验），改漏一处就会报错；
