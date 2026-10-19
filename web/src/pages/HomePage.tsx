@@ -51,20 +51,11 @@ function StyleGallery({ packs, loading, picked, onPick, mode }: {
   const [previewing, setPreviewing] = useState<string | null>(null)
   const categories = [...new Set(packs.map((pack) => pack.category).filter(Boolean))]
   const shown = category ? packs.filter((pack) => pack.category === category) : packs
-  const pickedName = packs.find((pack) => pack.id === picked)?.name
   return (
     <section id="style-gallery" className="band flex scroll-mt-20 flex-col gap-4" aria-label="设计师原创设计风格">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
         <div className="min-w-0">
           <h2 className="m-0 text-h2 font-semibold">设计师原创设计风格</h2>
-          <p className="m-0 mt-1 text-body-sm text-ink-sub">
-            不同风格包会影响页面视觉风格、配图倾向、布局规范等。
-            {mode === 'editable'
-              ? ' 图片转可编辑是按已有页面重建，不套用风格模板；这里可以浏览并点「查看」看大图。'
-              : pickedName
-                ? <> 已选 <span className="font-semibold text-ink">{pickedName}</span>，开始{ mode === 'reskin' ? '美化' : '生成' }时自动带上（第④步仍可更换）。</>
-                : ` 挑一个模板，开始${ mode === 'reskin' ? '美化' : '生成' }时自动带上（第④步仍可更换）。`}
-          </p>
         </div>
         <span className="flex-1" />
         <button type="button" className="link" onClick={() => navigate('/styles')}>全部风格 →</button>
@@ -305,17 +296,6 @@ function EditablePanel() {
 
   return (
     <div className="gen-panel">
-      <div className="gen-panel-head">
-        <PanelHead
-          lead={
-            <>
-              <span className="font-semibold text-ink">上传 PDF / 图片 / 已有 pptx</span>
-              ：先按原页渲染出图片版，再由本机 agent 逐页精细重建为<b>可编辑</b> PPT。
-            </>
-          }
-        />
-      </div>
-
       <div className="gen-panel-drop">
         <Dropzone
           icon
@@ -349,9 +329,7 @@ function EditablePanel() {
       {error && <div className="error-box text-body-sm">{error}</div>}
 
       <div className="gen-panel-foot">
-        <span className="text-body-sm text-ink-sub">
-          上传后先确认页面，再开始逐页精细重建；每页约 13 分钟，可随时停止，已完成页会保留。
-        </span>
+        <span className="flex-1" />
         <button type="button" className="btn btn-primary" disabled={!files.length || busy} onClick={start}>
           {busy ? '正在导入…' : '转可编辑 PPT'}
         </button>
