@@ -134,10 +134,11 @@ export function HomePage() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 首页大标题（参考版式）：两行居中，下面接上传卡 */}
+      {/* 首页大标题：品牌名 + 一句话说明，下面接上传卡 */}
       {!beautifyWorkbench && (
         <header className="home-hero">
-          <h1 className="m-0">专业PPT设计机构出品<br />顶尖图片生成AI模型加持</h1>
+          <h1 className="m-0"><span className="brand-gradient">SlideCraft</span></h1>
+          <p className="home-hero-sub">输入内容，自动生成整套风格统一的 PPT</p>
         </header>
       )}
       <section id="generation-modes" className={cn('scroll-mt-20', !beautifyWorkbench && 'gen-shell')}>
