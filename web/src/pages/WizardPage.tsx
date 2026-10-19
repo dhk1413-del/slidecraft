@@ -755,15 +755,6 @@ export function WizardPage() {
           )}
           {projectId && saveFailed && <button className="btn btn-secondary h-8! text-body-sm" onClick={() => void flushConfig()}>重试保存（不生成）</button>}
           <span className="flex-1" />
-          {parsed && (
-            <div className="flex flex-wrap items-center gap-2 text-caption">
-              <span className="tag num">{sourceType}</span>
-              <span className="tag num">{parsed.char_count} 字</span>
-              <span className="tag num">建议 {parsed.suggested_pages} 页</span>
-              <span className="tag num">保留 {keptPages.length} 页</span>
-              {stylePackId && <span className="tag num">{stylePackId}</span>}
-            </div>
-          )}
         </div>
         {configConflict&&remoteConfig&&<div className="card"><p>项目配置已由其他窗口修改，本地草稿已保留。</p><details><summary>查看差异</summary><pre className="whitespace-pre-wrap">{JSON.stringify({本地草稿:configDraft.current,服务器:remoteConfig},null,2)}</pre></details><button className="btn btn-secondary" onClick={()=>{projectStamp.current=remoteConfig.updated_at;setConfigConflict(false);setDraftTick(n=>n+1)}}>采用本地草稿（覆盖对应字段）</button><button className="btn btn-secondary" onClick={()=>{configDraft.current={};if(projectId)localStorage.removeItem(configKey(projectId));projectStamp.current=remoteConfig.updated_at;setTitle(remoteConfig.title);setStylePackId(remoteConfig.style_pack_id||null);setProjectSize(remoteConfig.size||'2K');setPages(prev=>prev.map(p=>({...p,...remoteConfig.page_drafts?.find(d=>d.page_no===p.page_no),content_revision:p.slide_id?remoteConfig.content_revisions?.[p.slide_id]??p.content_revision:p.content_revision})));setConfigConflict(false);setSaveState('已保存')}}>采用服务器配置</button></div>}
         <FlowSteps

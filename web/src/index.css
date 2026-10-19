@@ -266,7 +266,7 @@ dialog::backdrop { background: rgba(15, 23, 42, .48); backdrop-filter: blur(2px)
 .outline-chapter-row { display: flex; gap: 14px; align-items: flex-start; }
 .outline-chapter { display: flex; flex-direction: column; gap: 8px; width: 172px; flex-shrink: 0; padding: 12px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-alt); }
 .outline-chapter-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.outline-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; flex: 1; min-width: 0; }
+.outline-pages { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; flex: 1; min-width: 0; }
 .outline-page-card { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .outline-page-card:hover, .outline-page-card:focus-visible { border-color: var(--color-border-strong); box-shadow: var(--shadow-card); outline: none; }
 .outline-page-head { display: flex; align-items: center; gap: 6px; }
