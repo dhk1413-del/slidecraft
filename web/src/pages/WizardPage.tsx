@@ -658,10 +658,6 @@ export function WizardPage() {
             刷新风格包
           </button>
         </div>
-        <p className="card-desc mt-2">
-          风格包来自 <span className="num">GET /api/style-packs</span>（读仓库 style-packs/）；
-          选择后保存到项目。
-        </p>
         <div className="chips">
           {categories.map((c) => (
             <button
