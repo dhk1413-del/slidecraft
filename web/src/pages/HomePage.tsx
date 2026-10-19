@@ -257,9 +257,7 @@ function TopicPanel({ pickedPack, pickedName }: { pickedPack: string | null; pic
       {file && <PickedFile file={file} onClear={() => setFile(null)} />}
 
       <div className="gen-panel-foot">
-        <span className="text-body-sm text-ink-sub">
-          {file ? '已选择 1 个文件，点右侧开始' : `支持 TXT · MD · DOCX · PDF · PPTX，${UPLOAD_SIZE_HINT}`}
-        </span>
+        <span className="flex-1" />
         <button
           type="button"
           className="btn btn-primary"
