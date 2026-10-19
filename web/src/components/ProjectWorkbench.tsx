@@ -1,4 +1,4 @@
-import { configureProject } from '../api'
+import { } from '../api'
 /**
  * 生成结果（第 ⑤ 步）：POST /generate → SSE 逐页进度 → 缩略图网格 → 导出图片版 PPTX
  *
@@ -62,7 +62,8 @@ export function ProjectWorkbench({
   onDesignConfirmed,
 }: ProjectWorkbenchProps) {
   const toast = useToast()
-  const [size, setSize] = useState<string>(SIZES.includes(defaultSize as '2K') ? defaultSize : '2K')
+  /** 尺寸仍按向导传入的 defaultSize 生效；改尺寸的下拉随「生成页面」卡片一起移除，故只读 */
+  const [size] = useState<string>(SIZES.includes(defaultSize as '2K') ? defaultSize : '2K')
   const [innerTab, setInnerTab] = useState<'generate' | 'editable'>(view === 'editable' ? 'editable' : 'generate')
   const tab = controlledTab ?? innerTab
   const setTab = (t: 'generate' | 'editable') => {
@@ -312,7 +313,6 @@ export function ProjectWorkbench({
         : <>
           {slidesState.error && <Notice kind="warn">连接中断，正在恢复状态；保留已确认的页面结果。</Notice>}
           {viewer}
-          <p className="m-0 text-caption text-ink-sub">点结果图放大查看；要把原页转成可编辑对象，切到上方「按图片版重建」页签（逐页精细重建，约 13 分钟/页）。</p>
         </>
 
   /* ---------------- ⑤ 生成面板 ---------------- */
@@ -323,56 +323,6 @@ export function ProjectWorkbench({
 
   const generatePanel = (
     <div className="flex flex-col gap-4">
-      <div className="card">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <h2 className="card-title m-0! text-h3">生成页面</h2>
-          <span className="num text-ink-sub">项目 {projectId}</span>
-        </div>
-        <p className="card-desc">
-          提交生成任务后用 SSE 订阅逐页进度；无 key 时后端本地兜底渲染（Pillow 画 16:9 PNG，费用 0 元）。
-        </p>
-
-        <div className="flex flex-wrap items-end gap-4">
-          <label className="flex flex-col gap-1">
-            <span className="metric-label">风格包</span>
-            <span className={cn('tag num', !stylePackId && 'status-warn')}>
-              {stylePackId || '未选择（去「选择风格」）'}
-            </span>
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="metric-label">尺寸</span>
-            <select
-              className="input w-32"
-              disabled={running}
-              title={running ? "任务运行中，尺寸配置暂不可修改" : "整册尺寸"}
-              value={size}
-              onChange={async (e) => { const next = e.target.value; try { await configureProject(projectId, {size: next}); setSize(next); slidesState.reload() } catch (e) { toast.error('保存配置失败', (e as ApiError).detail) } }}
-              aria-label="生成尺寸"
-            >
-              {SIZES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="metric-label">页数</span>
-            <span className="num text-h3">{targetPages.length}</span>
-          </label>
-
-        </div>
-
-        {!stylePackId && (
-          <div className="mt-3">
-            <Notice kind="warn">还没绑定风格包 —— 先在「选择风格」里选一个，再回来点「开始生成」。</Notice>
-          </div>
-        )}
-      </div>
-
-      <p className="num">作用范围：全部参与页 {targetPages.join('、')}；风格仅支持整册统一。图片生成按页处理，{size} 为输出尺寸；按图片版重建处理已有图片，产物为可编辑对象。</p>
       {running && <Notice kind="info">后台任务运行中，可查看原稿、已完成结果及项目列表；暂不能修改任务页面或重复提交。</Notice>}
       {genError && <ErrorState error={genError} onRetry={startGenerate} title="提交生成失败" />}
 
@@ -418,7 +368,6 @@ export function ProjectWorkbench({
     <div className="flex flex-col gap-4">
       {view === 'both' && (
         <div className="flex flex-wrap items-center gap-2">
-          <div className="tag num">项目 {projectId}</div>
           <span className="flex-1" />
           {(['generate', 'editable'] as const).map((t) => (
             <button
@@ -440,12 +389,6 @@ export function ProjectWorkbench({
       ) : null}
 
 
-      <p className="m-0 text-caption text-ink-sub">
-        数据来源：GET /api/projects/{projectId}/slides
-        {slides[0]?.provider
-          ? ` · 首屏由 ${slides[0].provider}/${slides[0].model} · ${ms(slides[0].latency_ms)}`
-          : ''}
-      </p>
 
       {lightbox && currentSlide?.image_url && (
         <PageLightbox pages={lightboxPages} index={currentIndex} onIndex={selectPage} onClose={() => setLightbox(false)}
