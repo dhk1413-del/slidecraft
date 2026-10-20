@@ -103,6 +103,13 @@ function NotesWizard({ nid }: { nid: string }) {
       else if (step === 3 && !canExport) setStep(2)
     }
   }, [data, method, detail.loading, running, reviewState.busy, step, generationFinished, canExport])
+  // 从历史列表点「查看」进来（本页没有会话记录）且任务已有备注 → 直接落到「逐页复核」，
+  // 让人一进来就能看到上次写的讲稿，而不是又从「选择生成方式」开始找。
+  const hasSession = Object.keys(restored).length > 0
+  useEffect(() => {
+    if (hasSession || !data || detail.loading || running || reviewState.busy) return
+    if (step === 1 && (data.notes_done ?? 0) > 0) setStep(2)
+  }, [hasSession, data, detail.loading, running, reviewState.busy, step])
   const onReviewState = useCallback((unsaved: number, busy: boolean) => setReviewState(prev =>
     prev.unsaved === unsaved && prev.busy === busy ? prev : { unsaved, busy }), [])
   const onNotesChanged = useCallback(() => {

@@ -152,6 +152,13 @@ function NoteRow({ job, onDeleted }: { job: NotesJob; onDeleted: () => void }) {
       </span>
       <span className="flex-1" />
       <span className="text-caption text-ink-sub"><span className="num">{fmtTime(job.created_at)}</span></span>
+      <Link
+        to={`/notes/${job.id}`}
+        className="btn btn-secondary text-body-sm"
+        title={job.status === 'done' ? '查看这个任务的逐页备注' : '打开这个任务，接着上次的进度继续'}
+      >
+        查看
+      </Link>
       <button
         type="button"
         className={cn('btn btn-ghost text-body-sm', busy && 'is-disabled')}
