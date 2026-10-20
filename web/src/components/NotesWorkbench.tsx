@@ -38,6 +38,20 @@ function writeSession(nid: string, update: NotesSession) {
   try { sessionStorage.setItem(`notes-wizard:${nid}`, JSON.stringify({ ...readSession(nid), ...update })) } catch { /* session storage unavailable */ }
 }
 
+/** 两种写备注的方式：标题按钮 + 一句小字，讲清楚什么时候用哪个、差别在哪 */
+const NOTES_METHOD_OPTIONS: Array<{ value: 'vision' | 'direct'; label: string; desc: string }> = [
+  {
+    value: 'vision',
+    label: '先识别图片，再写备注',
+    desc: '图片/版式页适用：先让视觉模型读出画面里的文字和要点，再写备注，内容更准；要逐页识别，慢一些，也有识别费用。',
+  },
+  {
+    value: 'direct',
+    label: 'DeepSeek 直接写备注',
+    desc: '文字页适用：只读文本框里的文字直接写，最快、不收识别费；纯图片页没有可用文字，可能写不出备注。',
+  },
+]
+
 export function NotesWorkbench({ nid }: { nid: string }) {
   return <NotesWizard key={nid} nid={nid} />
 }
@@ -213,12 +227,32 @@ function NotesWizard({ nid }: { nid: string }) {
       <div hidden={step !== 1} style={{ display: step === 1 ? undefined : 'none' }} className="flex flex-col gap-4">
         <div className="card">
           <div className="card-title">选择生成方式</div>
-          <div className="flex flex-wrap gap-3">
-            {([['vision', '先识别图片，再写备注'], ['direct', 'DeepSeek 直接写备注']] as const).map(([value, label]) =>
-              <label key={value} className="flex items-center gap-2">
-                <input type="radio" name="notes-method" checked={method === value} disabled={taskBusy}
-                  onChange={() => { setMethod(value); setGenerated(false) }} />{label}
-              </label>)}
+          <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="选择生成方式">
+            {NOTES_METHOD_OPTIONS.map(({ value, label, desc }) => {
+              const active = method === value
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  disabled={taskBusy}
+                  className={cn(
+                    'flex flex-col items-start gap-1.5 rounded-md border px-4 py-3 text-left transition-colors',
+                    'disabled:cursor-not-allowed disabled:opacity-60',
+                    active ? 'border-primary bg-surface-tag' : 'border-border bg-surface hover:bg-surface-alt',
+                  )}
+                  onClick={() => { setMethod(value); setGenerated(false) }}
+                >
+                  <span className="flex w-full items-center gap-2">
+                    <span className={cn('text-body-md font-semibold', active ? 'text-primary' : 'text-ink')}>{label}</span>
+                    <span className="flex-1" />
+                    {active && <span className="status status-info">已选</span>}
+                  </span>
+                  <span className="text-caption text-ink-sub">{desc}</span>
+                </button>
+              )
+            })}
           </div>
         </div>
 
