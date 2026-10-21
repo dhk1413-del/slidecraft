@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
+import shlex
 import shutil
 import subprocess
 import threading
@@ -144,6 +146,60 @@ def max_concurrent_pages() -> int:
     except (TypeError, ValueError):
         value = DEFAULT_MAX_CONCURRENT_PAGES
     return max(1, min(8, value))
+
+
+DEFAULT_REMOTE_WORKDIR = "/opt/editppt-workers"
+SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new"]
+RSYNC_SSH = "ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
+
+
+def remote_workers() -> List[Dict[str, Any]]:
+    """辅助 worker 机（settings `editppt.remote_workers`，JSON 数组）。
+
+    每项：{"host": "root@192.168.110.13", "slots": 2,
+           "workdir": "/opt/editppt-workers",
+           "dsh": "dsh", "profile": "headless",
+           "skill_dir": "/root/.agents/skills/image-to-editable-ppt",
+           "editppt_cli": "/root/.editppt-venv/bin/editppt"}
+    解析失败或为空 → []（单机本地兜底不受影响）。
+    """
+    raw = _setting("editppt.remote_workers")
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw)
+    except ValueError:
+        return []
+    out: List[Dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict) or not str(item.get("host") or "").strip():
+            continue
+        try:
+            slots = max(1, min(8, int(item.get("slots") or 1)))
+        except (TypeError, ValueError):
+            slots = 1
+        out.append(dict(
+            host=str(item["host"]).strip(), slots=slots,
+            workdir=str(item.get("workdir") or DEFAULT_REMOTE_WORKDIR),
+            dsh=str(item.get("dsh") or "dsh"),
+            profile=str(item.get("profile") or harness_profile()),
+            skill_dir=str(item.get("skill_dir") or agents_skill_dir()),
+            editppt_cli=str(item.get("editppt_cli") or "editppt"),
+        ))
+    return out
+
+
+def worker_slots() -> List[Dict[str, Any]]:
+    """本机 + 辅助机展开成派发槽位；本机在前、远端按槽位交替插入（避免只用本机）。"""
+    nodes = [dict(kind="local", slots=max_concurrent_pages())]
+    nodes += [dict(kind="remote", **worker) for worker in remote_workers()]
+    depth = max((node["slots"] for node in nodes), default=0)
+    slots: List[Dict[str, Any]] = []
+    for index in range(depth):
+        for node in nodes:
+            if index < node["slots"]:
+                slots.append(node)
+    return slots
 
 
 def ocr_mode() -> str:
@@ -319,36 +375,50 @@ def run_status(project_id: str) -> Dict[str, Any]:
     except (OSError, ValueError):
         pass
     done = [p for p in pages if p["status"] in ("recorded", "accepted", "complete")]
+    if pages and len(done) == len(pages):
+        note = "已全部完成，可重新转换以组装 deck"
+    elif 0 < len(done) < len(pages):
+        note = "可继续上次进度（已完成 %d/%d 页）" % (len(done), len(pages))
+    elif pages and len(done) == 0:
+        note = "上次转换没跑完（已完成 0/%d 页），可继续转换重试" % len(pages)
+    else:
+        note = ""
     return dict(has_run=True, run_dir=run, run_name=os.path.basename(run), pages=pages,
                 page_nos=_stored_page_nos(run), recorded=len(done), total=len(pages),
-                resumable=0 < len(done) < len(pages), cancelled=is_cancelled(project_id),
-                note="可继续上次进度（已完成 %d/%d 页）" % (len(done), len(pages)) if 0 < len(done) < len(pages)
-                     else ("已全部完成，可重新转换以组装 deck" if pages and len(done) == len(pages) else ""))
+                resumable=bool(pages) and len(done) < len(pages),
+                cancelled=is_cancelled(project_id), note=note)
+
+
+def _run_roots(project_id: str) -> List[str]:
+    """该项目的 run 目录，按目录 mtime 升序。
+
+    run 目录名是 `p_xxx-run_<随机 uid>`，**不能按名字排序**（随机串的字典序和时间无关），
+    否则「最近一次 run」可能选中更早的那份现场（实测会导致续跑接到旧 run 上）。
+    """
+    root = os.path.join(config.FILES_DIR, "editppt")
+    if not os.path.isdir(root):
+        return []
+    paths = [os.path.join(root, d) for d in os.listdir(root) if d.startswith(project_id + "-")]
+    return sorted(paths, key=lambda p: os.path.getmtime(p))
 
 
 def _latest_run(project_id: str) -> str:
     """该项目最近一次的 run 目录（不分是否完成）。"""
-    root = os.path.join(config.FILES_DIR, "editppt")
-    if not os.path.isdir(root):
+    paths = _run_roots(project_id)
+    if not paths:
         return ""
-    candidates = sorted(d for d in os.listdir(root) if d.startswith(project_id + "-"))
-    if not candidates:
-        return ""
-    base = os.path.join(root, candidates[-1])
+    base = paths[-1]
     return _latest_run_dir(base) or base
 
 
 def _latest_incomplete_run(project_id: str) -> str:
     """找该项目最近一次「未全部完成」的 run 目录（供断点续跑）。
 
-    run 目录名形如 `p_xxx-20260921-021115`，其下还有 prepare 自建的一层；取最新一层。
+    run 目录名形如 `p_xxx-run_<随机 uid>`，其下还有 prepare 自建的一层；按 mtime 取最新一层。
+    0 页完成的 run 也算未完成：服务重启会杀死 page worker，此时已 prepare 的现场
+    （页图/文字真源）仍可复用，续跑只需把 dispatched 页重置后重新派发。
     """
-    root = os.path.join(config.FILES_DIR, "editppt")
-    if not os.path.isdir(root):
-        return ""
-    candidates = sorted(d for d in os.listdir(root) if d.startswith(project_id + "-"))
-    for name in reversed(candidates):
-        base = os.path.join(root, name)
+    for base in reversed(_run_roots(project_id)):
         run = _latest_run_dir(base) or base
         jobs_path = os.path.join(run, "page_jobs.json")
         if not os.path.exists(jobs_path):
@@ -359,7 +429,7 @@ def _latest_incomplete_run(project_id: str) -> str:
             continue
         done = [p for p in jobs.get("pages") or [] if p.get("status") in ("recorded", "accepted", "complete")]
         total = len(jobs.get("pages") or [])
-        if 0 < len(done) < total:                              # 有已完成页、但没全完成 → 可续跑
+        if 0 < total and len(done) < total:                    # 有页没完成（含 0 页完成的中断现场）→ 可续跑
             return run
     return ""
 
@@ -429,23 +499,27 @@ def _worker_prompt(run_dir: str, page_id: str, page_dir: str) -> str:
                  "不得编造；完成后在返回里说明文字来源。\n")
     load = ""
     if agent_kind() == "harness":
-        load = ("0. 先用 `skill` 工具加载 **image-to-editable-ppt**（读完整 SKILL.md 与它指向的 references，"
-                "不要凭记忆），再按下述页面指令执行。\n\n")
+        load = ("0. 先用 `skill` 工具加载 **image-to-editable-ppt**（加载 SKILL.md 即可），"
+                "再按 skill 的阅读路由只读本页需要的章节，**不要通读全部 references**。\n\n")
     return (
         "你正在执行 image-to-editable-ppt skill 的 **page worker（单页重建）** 任务，请严格按该 skill 执行。\n\n"
         + load +
-        "1. 页面工作指令（必读）：%s/worker-prompt.md\n"
-        "2. 权威契约与参考：%s/references/manifest-schema.md、page-decision-tree.md、cli-helper.md\n"
+        "1. 页面工作指令（必读，按需读）：%s/worker-prompt.md\n"
+        "2. 参考文件（按 page-decision-tree 的阅读路由只读相关章节；文件较大时用 read 的 offset/limit 或 grep 定位，"
+        "不要整份通读、不要重复读）：%s/references/manifest-schema.md、page-decision-tree.md、cli-helper.md\n"
         "3. 内容真源（重要）：%s"
-        "3.5 元素拆分硬要求（严格按 skill 的 page-decision-tree）：文字→原生文本框；"
-        "照片/插画/图标/logo/贴纸/手绘标记→必须走 image edit 的资产表分离成透明 PNG 资产"
-        "（source_type=asset-sheet-separated），不得直接裁源图、不得用原生形状近似；"
-        "卡片/线条/箭头/表格等结构性图形→原生形状或原生表格；背景→按 background_strategy "
-        "用 native 或 imagegen clean base；manifest 必须写 visual_inventory、background_strategy、"
-        "asset_provenance、quality_checks；**禁止把整页 source.png 当底图**。\n"
-        "4. 交付物：%s/manifest.json，然后用 `editppt page build %s` 生成 page.pptx 与 preview.png，"
-        "并让 `editppt page validate %s` 通过。**不要执行 run record / run finalize**（平台负责）。\n"
-        "5. 完成后用中文简述：validate 结果、text_boxes 与 shapes 数量、遇到的问题与取舍。\n"
+        "3.5 元素拆分按 skill 的 page-decision-tree 执行：文字→原生文本框；照片/插画/图标/logo→资产表分离透明 PNG；"
+        "卡片/线条/箭头/表格→原生形状/表格；背景→native 或 imagegen clean base；manifest 必写 "
+        "visual_inventory、background_strategy、asset_provenance、quality_checks；**禁止把整页 source.png 当底图**。\n"
+        "4. 交付物：%s/manifest.json，然后 `editppt page build %s`，再 `editppt page validate %s` 通过；"
+        "**不要执行 run record / run finalize**（平台负责）。\n"
+        "5. token 预算纪律（硬要求，务必遵守）：\n"
+        "   - 每个文件只读一次；已读过的不要重复 read/cat/grep。\n"
+        "   - 优先用 read(offset/limit)/grep 定位，不要用 bash cat/wc/ls 反复查看文件。\n"
+        "   - 独立工具调用尽量放在同一回合并行发出；不要启动后台任务或子代理。\n"
+        "   - manifest 写好后只 build 一次、validate 一次；只有 validate 报错才针对错误字段修复，禁止整页重写/重复验证。\n"
+        "   - 不要读与当前页无关的文件；不要为了「确认」重复执行同一命令。\n"
+        "6. 完成后用一两句话说明 validate 结果即可。\n"
         % (page_dir, skill_dir(), truth, page_dir, page_dir, page_dir))
 
 
@@ -455,12 +529,220 @@ def _page_outputs_stamp(page_dir: str) -> tuple:
                  for name in files if os.path.isfile(os.path.join(page_dir, name)))
 
 
-def _run_page_worker(page_dir: str, page_id: str, cancel_key: str = "") -> Dict[str, Any]:
+def _ssh_run(node: Dict[str, Any], script: str, timeout: int = 120) -> Dict[str, Any]:
+    """在辅助机执行一段 bash（脚本走 stdin，避免引号转义地狱）。"""
+    try:
+        proc = subprocess.run(["ssh"] + SSH_OPTS + [node["host"], "bash", "-s"],
+                              input=script, capture_output=True, text=True, timeout=timeout)
+        return dict(ok=proc.returncode == 0, out=(proc.stdout or "")[-2000:], err=(proc.stderr or "")[-2000:])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return dict(ok=False, out="", err="%s: %s" % (type(exc).__name__, exc))
+
+
+def _rsync_run(args: List[str], timeout: int = 900) -> Dict[str, Any]:
+    try:
+        proc = subprocess.run(["rsync", "-a"] + args, capture_output=True, text=True, timeout=timeout)
+        return dict(ok=proc.returncode == 0, out=(proc.stdout or "")[-1000:], err=(proc.stderr or "")[-1000:])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return dict(ok=False, out="", err="%s: %s" % (type(exc).__name__, exc))
+
+
+def _remote_run_base(node: Dict[str, Any], run_dir: str) -> str:
+    run_dir = run_dir.rstrip("/")
+    return posixpath.join(node["workdir"], os.path.basename(os.path.dirname(run_dir)), os.path.basename(run_dir))
+
+
+def _remote_page_dir(node: Dict[str, Any], run_dir: str, page_dir: str) -> str:
+    return posixpath.join(_remote_run_base(node, run_dir), "pages", os.path.basename(page_dir.rstrip("/")))
+
+
+def _rewrite_remote_prompt(text: str, run_dir: str, page_dir: str, remote_page: str,
+                           node: Dict[str, Any]) -> str:
+    """把 worker prompt 里的本机绝对路径改写成辅助机路径（普通字符串替换，路径都是真实存在的前缀）。"""
+    remote_run = posixpath.dirname(posixpath.dirname(remote_page))
+    text = text.replace(page_dir.rstrip("/"), remote_page)
+    text = text.replace(run_dir.rstrip("/"), remote_run)
+    for local_skill in (skill_dir(), agents_skill_dir()):
+        if local_skill:
+            text = text.replace(local_skill.rstrip("/"), node["skill_dir"])
+    return text
+
+
+def _rewrite_pulled_paths(page_dir: str, remote_page: str) -> None:
+    """远端产物常带绝对路径（manifest 里的字体/资产、validation 里的 pptx）→ 回收后改回本机路径。"""
+    local = page_dir.rstrip("/")
+    for name in ("manifest.json", "validation.json", "page_result.json", "imagegen-jobs.json"):
+        path = os.path.join(page_dir, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            text = open(path, encoding="utf-8").read()
+        except OSError:
+            continue
+        if remote_page in text:
+            try:
+                open(path, "w", encoding="utf-8").write(text.replace(remote_page, local))
+            except OSError:
+                pass
+
+
+def _pull_remote_page(node: Dict[str, Any], remote_page: str, page_dir: str) -> Dict[str, Any]:
+    return _rsync_run(["-e", RSYNC_SSH,
+                       "--exclude", "worker-prompt.md",
+                       "--exclude", "source.png",
+                       "--exclude", "text_hints.png",
+                       "--exclude", "agent.log",
+                       "%s:%s/" % (node["host"], remote_page), page_dir.rstrip("/") + "/"])
+
+
+def _remote_agent_tail(node: Dict[str, Any], remote_page: str) -> str:
+    res = _ssh_run(node, "tail -n 30 %s 2>/dev/null || true\n"
+                   % shlex.quote(posixpath.join(remote_page, "agent.log")), timeout=30)
+    return (res.get("out") or "")[-1500:]
+
+
+def _remote_state(node: Dict[str, Any], remote_page: str, pid: int) -> Dict[str, Any]:
+    """一次 ssh 查两件事：进程还活着吗 / page_result.json 的 mtime（用于提前收尾）。"""
+    script = ("if kill -0 %d 2>/dev/null; then echo ALIVE; else echo DEAD; fi\n"
+              "stat -c %%Y %s 2>/dev/null || echo -\n"
+              % (pid, shlex.quote(posixpath.join(remote_page, "page_result.json"))))
+    res = _ssh_run(node, script, timeout=30)
+    lines = (res.get("out") or "").strip().splitlines()
+    alive = bool(lines) and lines[0].strip() == "ALIVE"
+    mtime = 0
+    if len(lines) > 1:
+        try:
+            mtime = int(lines[1].strip())
+        except ValueError:
+            mtime = 0
+    return dict(ok=res["ok"], alive=alive, mtime=mtime)
+
+
+def _run_remote_page_worker(node: Dict[str, Any], page_dir: str, page_id: str,
+                            cancel_key: str = "") -> Dict[str, Any]:
+    """在辅助机上跑一个 headless page worker：同步页面目录 → 远端 dsh → 回收产物。
+
+    远端只负责「重建这一页」；校验/record/finalize 仍全部在本机完成。
+    远端 agent 用 setsid 脱离 ssh 会话跑（输出写 agent.log），本机轮询进程/产物：
+    - 产物稳定 early_exit_seconds 后提前收尾（与本地一致）
+    - 超时/取消时杀远端进程；超时也回收已有产物（record 仍会做权威校验）
+    """
+    run_dir = os.path.dirname(os.path.dirname(page_dir))
+    remote_page = _remote_page_dir(node, run_dir, page_dir)
+    started = time.time()
+    prep = _ssh_run(node, "mkdir -p %s\n" % shlex.quote(remote_page))
+    if not prep["ok"]:
+        return dict(ok=False, tail="远端目录创建失败：%s" % prep["err"])
+    local_prompt = os.path.join(page_dir, "worker-prompt.md")
+    try:
+        text = open(local_prompt, encoding="utf-8").read()
+    except OSError as exc:
+        return dict(ok=False, tail="读取 worker prompt 失败：%s" % exc)
+    tmp_prompt = os.path.join(page_dir, ".worker-prompt.remote.md")
+    with open(tmp_prompt, "w", encoding="utf-8") as target:
+        target.write(_rewrite_remote_prompt(text, run_dir, page_dir, remote_page, node))
+    try:
+        push = _rsync_run(["-e", RSYNC_SSH, page_dir.rstrip("/") + "/",
+                           "%s:%s/" % (node["host"], remote_page)])
+    finally:
+        try:
+            os.unlink(tmp_prompt)
+        except OSError:
+            pass
+    if not push["ok"]:
+        return dict(ok=False, tail="页面目录同步到远端失败：%s" % push["err"])
+    rename = _ssh_run(node, "mv %s %s\n" % (
+        shlex.quote(posixpath.join(remote_page, ".worker-prompt.remote.md")),
+        shlex.quote(posixpath.join(remote_page, "worker-prompt.md"))))
+    if not rename["ok"]:
+        return dict(ok=False, tail="远端 worker prompt 改名失败：%s" % rename["err"])
+
+    cli_dir = posixpath.dirname(node["editppt_cli"])
+    script = (
+        "set -e\n"
+        "export PATH=%s:$PATH\n"
+        "cd %s\n"
+        "rm -f agent.log\n"
+        "setsid nohup %s --profile %s \"$(cat worker-prompt.md)\" > agent.log 2>&1 < /dev/null &\n"
+        "echo $!\n"
+        % (shlex.quote(cli_dir), shlex.quote(remote_page),
+           shlex.quote(node["dsh"]), shlex.quote(node["profile"])))
+    start = _ssh_run(node, script, timeout=30)
+    try:
+        pid = int((start.get("out") or "").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return dict(ok=False, tail="远端 worker 启动失败：%s" % (start.get("out") or start.get("err")))
+
+    def kill_remote() -> None:
+        _ssh_run(node, "pkill -f %s || true\n" % shlex.quote(remote_page), timeout=20)
+
+    timeout = page_worker_timeout()
+    early = early_exit_seconds()
+    stable_mtime = 0
+    stable_since: Optional[float] = None
+    cancelled = False
+    timed_out = False
+    probe_failures = 0
+    while True:
+        if cancel_key and is_cancelled(cancel_key):
+            cancelled = True
+            kill_remote()
+            break
+        if time.time() - started > timeout:
+            timed_out = True
+            kill_remote()
+            break
+        state = _remote_state(node, remote_page, pid)
+        if not state["ok"]:
+            probe_failures += 1
+            if probe_failures >= 5:                      # ssh 连续失败：不再等满超时
+                kill_remote()
+                break
+        else:
+            probe_failures = 0
+            if not state["alive"]:
+                break
+            if early and state["mtime"]:
+                if state["mtime"] != stable_mtime:
+                    stable_mtime, stable_since = state["mtime"], time.time()
+                elif stable_since is not None and time.time() - stable_since >= early:
+                    kill_remote()
+                    break
+        time.sleep(3)
+
+    tail = _remote_agent_tail(node, remote_page)
+    if cancelled:
+        return dict(ok=False, cancelled=True, tail=tail or "已按用户要求停止（远端现场保留）")
+    pull = _pull_remote_page(node, remote_page, page_dir)
+    if not pull["ok"]:
+        return dict(ok=False, tail="远端产物回收失败：%s（远端目录 %s 保留）" % (pull["err"], remote_page))
+    _rewrite_pulled_paths(page_dir, remote_page)
+    try:
+        json.dump(dict(host=node["host"], remote_dir=remote_page,
+                       seconds=round(time.time() - started, 1)),
+                  open(os.path.join(page_dir, "worker_node.json"), "w"), ensure_ascii=False)
+    except OSError:
+        pass
+    if timed_out:
+        try:
+            open(os.path.join(page_dir, "remote_worker_error.txt"), "w", encoding="utf-8").write(tail)
+        except OSError:
+            pass
+        return dict(ok=False, tail="远端 page worker 超时（%d 秒）；已回收现有产物" % timeout)
+    ok = os.path.isfile(os.path.join(page_dir, "page_result.json"))
+    return dict(ok=ok, tail=tail or "远端 page worker 完成")
+
+
+def _run_page_worker(page_dir: str, page_id: str, cancel_key: str = "",
+                     node: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """派一个 headless agent 当 page worker 重建这一页（默认 DeepSeek Harness，可选 Hermes）。
 
     用 Popen + 轮询（而不是 `subprocess.run`）是为了能**中途取消**：用户点「停止」后
     最多 1 秒内终止子进程，现场（已完成页 + 该页状态）全部保留，便于断点续跑。
+    `node` 为 `worker_slots()` 里的槽位：kind=remote 时走辅助机（同步页面目录 → 远端 dsh → 回收）。
     """
+    if node and node.get("kind") == "remote":
+        return _run_remote_page_worker(node, page_dir, page_id, cancel_key)
     run_dir = os.path.dirname(os.path.dirname(page_dir))
     prompt = _worker_prompt(run_dir, page_id, page_dir)
     agent = agent_kind()
@@ -721,7 +1003,8 @@ def _run_pages(project_id: str, run_dir: str, rows: List[Dict[str, Any]],
 
     failures: List[Dict[str, Any]] = []
     cancelled = False
-    workers = max_concurrent_pages()
+    slots = worker_slots()
+    workers = len(slots) or 1
     notify(stage="prepare", message="已就绪：%d 页（并发 %d）" % (len(dirs), workers),
            done=len(recorded), total=len(dirs))
 
@@ -749,7 +1032,8 @@ def _run_pages(project_id: str, run_dir: str, rows: List[Dict[str, Any]],
 
         selected = [p for p in (nxt.get("suggested_pages") or []) if p in page_id_to_row][:workers]
         batch: List[tuple] = []
-        for page_id in selected:
+        for index, page_id in enumerate(selected):
+            node = slots[index] if index < len(slots) else dict(kind="local")
             if cancel_key and is_cancelled(cancel_key):
                 cancelled = True
                 break
@@ -779,7 +1063,7 @@ def _run_pages(project_id: str, run_dir: str, rows: List[Dict[str, Any]],
                 notify(stage="page_failed", page=page_no, status="failed",
                        message="第 %s 页派发失败" % page_no, done=len(recorded), total=len(dirs))
                 continue
-            batch.append((page_id, page_dir, row))
+            batch.append((page_id, page_dir, row, node))
         if cancelled:
             break
         if not batch:
@@ -787,8 +1071,15 @@ def _run_pages(project_id: str, run_dir: str, rows: List[Dict[str, Any]],
             break
 
         def run_one(item: tuple) -> tuple:
-            page_id, page_dir, row = item
-            return page_id, page_dir, row, _run_page_worker(page_dir, page_id, cancel_key or "")
+            page_id, page_dir, row, node = item
+            result = _run_page_worker(page_dir, page_id, cancel_key or "", node)
+            # 辅助机不可用/失败时回退本机重试一次（远端没留下可校验产物才回退，避免重复跑已有产物的页）
+            if (node and node.get("kind") == "remote" and not result.get("ok")
+                    and not result.get("cancelled")
+                    and not os.path.isfile(os.path.join(page_dir, "page_result.json"))):
+                result = _run_page_worker(page_dir, page_id, cancel_key or "", dict(kind="local"))
+                result["tail"] = "[远端失败已回退本机] " + str(result.get("tail") or "")
+            return page_id, page_dir, row, result
 
         with ThreadPoolExecutor(max_workers=min(len(batch), workers)) as pool:
             futures = [pool.submit(run_one, item) for item in batch]

@@ -626,6 +626,12 @@ async def run_editppt(project_id: str, page_nos: List[int], resume: bool = False
     `resume=True` 时复用最近一次未完成的 run 现场（跳过已记录页）；可随时取消（保留现场）。
     """
     import shutil
+    active = db.q1(
+        "SELECT id FROM jobs WHERE project_id=? AND kind='editable_hi' "
+        "AND status IN ('queued','running','cancelling') ORDER BY rowid DESC",
+        (project_id,))
+    if active:                                              # 同一项目只允许一个转换任务：两个任务会同时写同一份现场
+        raise ValueError('该项目已有转换任务在跑（%s），请等它结束或先停止后再提交' % active['id'])
     source_rows = None
     if not resume:
         source_rows = [dict(r) for r in db.q('SELECT * FROM slides WHERE project_id=? ORDER BY page_no', (project_id,)) if r['page_no'] in page_nos]

@@ -209,6 +209,17 @@ def main():
         st = ee.run_status("p_resume")
         check("run_status 报总数/已完成", st["total"] == 1 and st["recorded"] == 1 and st["has_run"])
         check("全部完成时 resumable=False", st["resumable"] is False, str(st))
+        # 服务重启会杀死所有 page worker，一个页面都没来得及 record；现场仍应可续跑（复用 prepare 结果）
+        json.dump({"pages": [{"page_id": "page_001", "status": "dispatched"},
+                             {"page_id": "page_002", "status": "dispatched"}]},
+                  open(os.path.join(partial, "page_jobs.json"), "w"))
+        check("★ 0 页完成的中断现场 → 仍找到可续跑的 run",
+              ee._latest_incomplete_run("p_resume") == partial)
+        st0 = ee.run_status("p_resume")
+        check("0 页完成时 resumable=True 且有提示", st0["resumable"] is True and "继续转换" in st0["note"], str(st0))
+        json.dump({"pages": [{"page_id": "page_001", "status": "recorded"},
+                             {"page_id": "page_002", "status": "pending"}]},
+                  open(os.path.join(partial, "page_jobs.json"), "w"))
         json.dump([7, 9], open(os.path.join(partial, "deckforge_pages.json"), "w"))
         check("run_status 带出原始页清单（续跑按它映射）", ee.run_status("p_resume")["page_nos"] == [7, 9],
               str(ee.run_status("p_resume")["page_nos"]))
@@ -216,6 +227,20 @@ def main():
               ee._stored_page_nos(run) == [] and ee._stored_page_nos("") == [])
         shutil.rmtree(partial)
         check("没有转换记录时 has_run=False", ee.run_status("p_none")["has_run"] is False)
+
+        print("[8b] run 目录取最新：按 mtime，不按随机 uid 名排序")
+        named_big = os.path.join(tmp, "editppt", "p_order-run_zzzzzz")
+        named_small = os.path.join(tmp, "editppt", "p_order-run_aaaaaa")
+        for path in (named_big, named_small):
+            os.makedirs(path, exist_ok=True)
+            json.dump({"pages": [{"page_id": "page_001", "status": "pending"}]},
+                      open(os.path.join(path, "page_jobs.json"), "w"))
+        os.utime(named_big, (1000, 1000))
+        os.utime(named_small, (2000, 2000))                    # 名字小但更晚创建
+        check("★ 按 mtime 取最新 run（随机 uid 名不能按字典序）",
+              ee._latest_run("p_order") == named_small, ee._latest_run("p_order"))
+        check("★ 续跑也取 mtime 最新的未完成 run",
+              ee._latest_incomplete_run("p_order") == named_small, ee._latest_incomplete_run("p_order"))
 
         ee.clear_cancel("p_c")
         check("取消令牌默认未置位", ee.is_cancelled("p_c") is False)
@@ -327,6 +352,39 @@ def main():
               str(res3.get("error"))[:80])
         check("取消提示保留现场可继续", "可" in str(res3.get("error")) and bool(res3.get("run_dir")))
         check("取消时不做 finalize（partial=True）", res3.get("partial") is True)
+
+        print("[14] 多机派发：辅助机配置 / 槽位顺序 / prompt 路径改写")
+        fk.set(ee, "_setting", lambda key, default="": (
+            json.dumps([{"host": "root@192.168.110.13", "slots": 2,
+                         "workdir": "/opt/editppt-workers",
+                         "skill_dir": "/root/.agents/skills/image-to-editable-ppt",
+                         "editppt_cli": "/root/.editppt-venv/bin/editppt"}])
+            if key == "editppt.remote_workers" else default))
+        fk.set(ee, "harness_profile", lambda: "headless")
+        fk.set(ee, "agents_skill_dir", lambda: "/platform/agents-skill")
+        fk.set(ee, "skill_dir", lambda: "/platform/skill")
+        fk.set(ee, "max_concurrent_pages", lambda: 2)
+        hubs = ee.remote_workers()
+        check("解析 remote worker（host/slots/默认 profile）",
+              len(hubs) == 1 and hubs[0]["host"] == "root@192.168.110.13" and hubs[0]["slots"] == 2
+              and hubs[0]["profile"] == "headless", str(hubs))
+        slots = ee.worker_slots()
+        check("★ 槽位 = 本机 2 + 辅助机 2，且本机/远端交替派发",
+              len(slots) == 4 and [s["kind"] for s in slots] == ["local", "remote", "local", "remote"],
+              str([s["kind"] for s in slots]))
+        fk.set(ee, "_setting", lambda key, default="": "not-json" if key == "editppt.remote_workers" else default)
+        check("remote_workers 坏 JSON → 空列表（不抛异常）", ee.remote_workers() == [])
+        remote_page = "/opt/editppt-workers/run_ab/20261020-1/pages/page_001"
+        text = ("runroot=/data/run_ab/20261020-1 page=/data/run_ab/20261020-1/pages/page_001 "
+                "worker=/platform/skill agents=/platform/agents-skill "
+                "truth=/data/run_ab/20261020-1/pages/page_001/truth_text.txt")
+        rewritten = ee._rewrite_remote_prompt(
+            text, "/data/run_ab/20261020-1", "/data/run_ab/20261020-1/pages/page_001", remote_page, hubs[0])
+        check("★ prompt 里页面/run/技能路径都改写为辅助机路径",
+              "runroot=/opt/editppt-workers/run_ab/20261020-1 " in rewritten
+              and remote_page in rewritten
+              and "/root/.agents/skills/image-to-editable-ppt" in rewritten
+              and "/data/run_ab" not in rewritten, rewritten[:200])
     finally:
         fk.restore()
         shutil.rmtree(tmp, ignore_errors=True)
