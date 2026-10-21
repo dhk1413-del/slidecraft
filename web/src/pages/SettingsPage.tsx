@@ -144,8 +144,11 @@ function ProviderCard({
         <KeyStatusBadge
           keySet={provider.key_set}
           verification={verification}
-          emptyHint={provider.id === 'qwen_vl' ? 'key 未配置（将退化为本地图片分析）' : undefined}
+          emptyHint={provider.id === 'qwen_vl'
+            ? provider.fallback ? '未单独配置，复用 GuaiHub key' : 'key 未配置（图片识别不可用）'
+            : undefined}
         />
+        {provider.fallback && <span className="status status-info">复用 GuaiHub key</span>}
         {provider.needs_proxy && <span className="status status-warn">需代理</span>}
         {!needsKey && <span className="status status-success">本地兜底 · 无需 key</span>}
         {!open && (
@@ -160,7 +163,7 @@ function ProviderCard({
           </span>
         )}
         <span className="flex-1" />
-        {provider.unit_price_cny !== null && (
+        {typeof provider.unit_price_cny === 'number' && (
           <span className="num text-caption text-ink-sub">单价 ¥{provider.unit_price_cny}</span>
         )}
       </div>
@@ -458,9 +461,12 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <h2 className="m-0 text-h3 font-semibold">视觉模型（图片版转原生对象）</h2>
+      <h2 className="m-0 text-h3 font-semibold">视觉模型（图片/版式识别）</h2>
       <Notice kind="info">
-        Qwen-VL 会读取你勾选的图片版页面，识别文字、卡片、图表和插画区域，再交给原生 PPTX 构建器。建议先用 Plus 测试，复杂页面可改为 Max。
+        备注生成、风格构建与图片重建会调用视觉模型读出画面里的文字、卡片、图表与插画区域。
+        {draft.vision?.fallback
+          ? ' 当前未单独填视觉 key：自动复用 GuaiHub 中转 key 做识别（默认 gemini-2.5-flash，可在下面改「默认模型」覆盖）。'
+          : ' 填了百炼 Qwen-VL 的 key 时用百炼官方端点（直连）；也可把 Base URL 指向任意 OpenAI 兼容视觉端点。'}
       </Notice>
       {draft.vision ? <ProviderCard provider={draft.vision} onSaved={setDraft} showPrice={false} /> : null}
 

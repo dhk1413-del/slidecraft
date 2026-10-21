@@ -280,6 +280,10 @@ export async function uploadNotesPptx(file: File): Promise<NotesJobDetail> {
 export const getNotesJob = (nid: string) =>
   request<NotesJobDetail>(`/notes/${encodeURIComponent(nid)}`)
 
+/** 按需渲染上传 PPT 的逐页 PNG（首次跑 LibreOffice 约 10~30 秒，之后走磁盘缓存） */
+export const renderNotesPages = (nid: string) =>
+  request<import('./types').NotesRenderResponse>(`/notes/${encodeURIComponent(nid)}/render`, { method: 'POST' })
+
 export const deleteNotesJob = (nid: string) =>
   request<{ ok: boolean }>(`/notes/${encodeURIComponent(nid)}`, { method: 'DELETE' })
 

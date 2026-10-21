@@ -121,23 +121,58 @@ def text_provider(with_keys: bool = False) -> Dict[str, Any]:
                 key_set=bool(key), key_masked=mask(key), key=key if with_keys else "")
 
 
+GUAIHUB_VISION_MODEL = "gemini-2.5-flash"
+
+
+def _guaihub_vision_fallback() -> Optional[Dict[str, Any]]:
+    """没有单独填视觉 key 时，复用 GuaiHub 中转的生图 key 做视觉识别。
+
+    GuaiHub 是 New API 中转站（OpenAI 兼容 /chat/completions）。实测 gemini-2.5-flash
+    能按本项目的 VISION_PROMPT 返回可解析 JSON（2026-10-21 实测 3.2s）。这样只配了中转
+    key 的机器，备注识别 / 风格构建 / 图片重建也能用，不必再单独申请百炼 key。
+    """
+    key = db.setting_get("key:guaihub", "") or _load_env().get("GUAIHUB_API_KEY", "")
+    if not key:
+        return None
+    configured = db.setting_get("base_url:guaihub", "")
+    if not configured:
+        configured = next((p.get("base_url", "") for p in load_providers_yaml().get("providers", [])
+                           if p.get("id") == "guaihub"), "")
+    return dict(key=key, base_url=(configured or "https://api.guaihub.cc/v1").rstrip("/"))
+
+
 def vision_provider(with_keys: bool = False) -> Dict[str, Any]:
-    """视觉模型（默认百炼 Qwen-VL）专用于图片版 → 原生对象的图片理解，和生图配置分开。
+    """视觉模型（默认百炼 Qwen-VL）用于图片/版式页的文字、图表与布局识别。
 
     · 端点可改：把 base_url 指向任意 OpenAI 兼容视觉端点（例如中转站上的视觉模型）也能用。
     · 代理由端点决定：百炼是国内官方端点 → 直连；自定义端点按 network.mode 走代理（TUN/none 下自然直连）。
     · 名称随端点变：指向自定义端点时不再自称「阿里百炼」，避免界面骗人。
+    · 兜底：没填视觉 key 但配了 GuaiHub（New API 中转）时，复用它的 key + 默认 gemini-2.5-flash，
+      并在返回里标 `fallback: true`，界面据此提示「复用了生图 key」。
     """
     key = db.setting_get("key:qwen_vl", "") or _load_env().get("DASHSCOPE_API_KEY", "")
     default_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     base_url = (db.setting_get("base_url:qwen_vl", "") or default_base).rstrip("/")
     is_bailian = "dashscope.aliyuncs.com" in base_url
     model = db.setting_get("model:qwen_vl", "") or ("qwen-vl-plus" if is_bailian else "")
+    fallback = None
+    if not key:
+        fallback = _guaihub_vision_fallback()
+        if fallback:
+            key, base_url, is_bailian = fallback["key"], fallback["base_url"], False
+            model = db.setting_get("model:qwen_vl", "") or GUAIHUB_VISION_MODEL
+    if fallback:
+        label = "GuaiHub · 视觉识别（复用生图 key）"
+    else:
+        label = "阿里百炼 · Qwen-VL（图片理解）" if is_bailian else "自定义视觉模型（OpenAI 兼容）"
     models = [dict(id="qwen-vl-plus"), dict(id="qwen-vl-max")] if is_bailian else ([dict(id=model)] if model else [])
-    return dict(id="qwen_vl", label="阿里百炼 · Qwen-VL（图片理解）" if is_bailian else "自定义视觉模型（OpenAI 兼容）",
+    return dict(id="qwen_vl", label=label,
                 base_url=base_url, default_model=model, default_size="-", models=models, is_bailian=is_bailian,
-                needs_proxy=not is_bailian, key_set=bool(key), key_masked=mask(key), key=key if with_keys else "",
-                notes="用于识别图片版 PPT 的文字、版式、图表与插画区域；百炼官方端点直连，自定义端点按网络模式走代理。")
+                needs_proxy=bool(fallback) or not is_bailian, key_set=bool(key), key_masked=mask(key),
+                key=key if with_keys else "", fallback=bool(fallback),
+                notes=("未单独填写视觉 key：当前复用 GuaiHub 中转 key（模型 %s，可改默认模型）。"
+                       "填了「视觉模型」自己的 key 后优先用它。" % GUAIHUB_VISION_MODEL) if fallback else
+                      "用于识别图片版 PPT 的文字、版式、图表与插画区域；百炼官方端点直连，自定义端点按网络模式走代理。")
 
 
 def priority() -> List[str]:

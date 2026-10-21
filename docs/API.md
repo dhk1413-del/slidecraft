@@ -18,7 +18,7 @@
 | 方法 | 路径 | 说明 | 响应 |
 |---|---|---|---|
 | GET | `/api/health` | 存活 + 能力探测 | `{"ok":true,"version":"0.4.0","port":8640,"db":"ok","providers":{"image":{"guaihub":true,"dashscope":false,"local_render":true},"text":{"deepseek":false}},"network":{"mode":"http_proxy","http_proxy":"http://127.0.0.1:7897"}}` |
-| GET | `/api/settings` | 读取设置（**key 掩码**） | `{"providers":[{"id":"guaihub","label":"GuaiHub · GPT Image 2","key_set":false,"key_masked":"","default_model":"gpt-image-2","default_size":"2K","needs_proxy":true,"unit_price_cny":null}],"text":{"id":"deepseek","key_set":false,"model":""},"network":{"mode":"http_proxy"}}` |
+| GET | `/api/settings` | 读取设置（**key 掩码**） | `{"providers":[{"id":"guaihub","label":"GuaiHub · GPT Image 2","key_set":false,"key_masked":"","default_model":"gpt-image-2","default_size":"2K","needs_proxy":true,"unit_price_cny":null}],"text":{"id":"deepseek","key_set":false,"model":""},"vision":{"id":"qwen_vl","label":"GuaiHub · 视觉识别（复用生图 key）","base_url":"https://api.guaihub.cc/v1","default_model":"gemini-2.5-flash","key_set":true,"fallback":true},"network":{"mode":"http_proxy"}}`。<br>**视觉模型兜底**：没单独填视觉 key（`key:qwen_vl` / `DASHSCOPE_API_KEY`）但配了 GuaiHub 中转 key 时，`vision` 自动复用该 key + 默认 `gemini-2.5-flash`（New API 兼容 `/chat/completions`，实测可返回本项目要求的 JSON），并返回 `fallback:true`；可用 `model:qwen_vl` 覆盖模型、`base_url:qwen_vl` 覆盖地址；一旦单独填了视觉 key（百炼或任意 OpenAI 兼容端点）就优先用它。 |
 | PUT | `/api/settings` | 写 key/模型/Base URL/单价（**热加载，无需重启**） | body `{"provider_id":"guaihub","api_key":"sk-...","base_url":"https://api.guaihub.cc/v1","default_model":"gpt-image-2","default_size":"2K","unit_price_cny":"1.5"}` 或 `{"network":{"mode":"tun"}}` → 返回同 GET /api/settings。`unit_price_cny` 是**元/张**（字符串，空串=清除覆盖，存为 `price:<provider_id>` 覆盖 yaml）；**未填单价时账本金额记 0，不代表免费**。 |
 | POST | `/api/settings/test` | 连通性测试（后端按 `needs_proxy` 自动决定走不走代理）。body：`{"provider_id":"guaihub"}`；可选 `api_key` 用于测试尚未保存的输入框密钥，**仅用于本次请求，绝不落库、不回显、不写日志**。 | `{"provider_id":"guaihub","ok":true,"status":200,"latency_ms":412,"message":"连通且鉴权通过"}` |
 
@@ -63,7 +63,7 @@
 |---|---|---|
 | GET | `/api/notes` | 任务列表 `{items:[NotesJob]}` |
 | POST | `/api/notes/upload` | 表单字段 `file`（**仅 .pptx**）→ 落地文件 + 解析页清单，**秒回、不花钱**：`{id,title,pages,image_pages,notes_existing,pages_detail:[…],hint}` |
-| GET | `/api/notes/{nid}` | 任务详情：job 字段 + `pages_detail[]`（含 `text_source`/`vision`/`note`/各状态）+ `notes_done`/`notes_failed` |
+| GET | `/api/notes/{nid}` | 任务详情：job 字段 + `pages_detail[]`（含 `text_source`/`vision`/`note`/各状态）+ `notes_done`/`notes_failed` |\n| POST | `/api/notes/{nid}/render` | **按需渲染原页**（幂等）：把上传的 .pptx 用 LibreOffice→PDF→PyMuPDF 渲染成逐页 PNG，写入 `data/files/notes/{nid}/pNNN.png` 并记录 `render_path`。返回 `{rendered,page_count,pages:[{page_no,image_url}]}`；首次调用约 10~30 秒，之后走磁盘缓存（`rendered:false`）。渲染页数与 PPT 页数不一致 → **400**（防备注错页）。前端进入「逐页复核」时自动调用一次，页面预览区显示 **PPT 实际页面**（而不是提取文字）；失败时回退显示提取文字并给「重试」 |
 | DELETE | `/api/notes/{nid}` | 删除任务与页记录（上传的原文件留在 `data/files/notes/{nid}/`） |
 | POST | `/api/notes/{nid}/analyze` | body `{vision_mode:"auto"\|"all"\|"off", page_nos?:[]}` → `{job_id}`，**SSE 订阅 `/api/jobs/{job_id}/stream`**。渲染 pptx→PDF→逐页 PNG（缓存），再调视觉模型建立每页「内容真源」 |
 | POST | `/api/notes/{nid}/generate` | body `{page_nos?, instruction?, only_missing?}` → `{job_id}`（SSE）。`instruction` = 「写提示词让 AI 重写」；`only_missing=true` = 只补未完成的页（续跑，不重跑已完成的页） |
@@ -79,6 +79,7 @@
 2. 渲染 PDF 页数必须等于 pptx 页数，否则**拒绝继续**（防备注错页）；导出前也会再校验一次。
 3. `note_original` 非空时默认保留原文，AI 备注以 `【演讲备注】` 分隔追加在下方（`keep_original:false` 可覆盖）。
 4. 零 key 时：上传/解析/页清单全可用；`analyze` 报「未配置视觉模型」；`generate` 报「未配置 DeepSeek」。
+   **只配了 GuaiHub 中转 key 时**：视觉识别自动复用该 key（默认模型 `gemini-2.5-flash`，见 GET `/api/settings` 的 `vision.fallback`），图片页也能正常识别并写备注；纯图片页 + 没有任何视觉 key 时，备注会如实失败并说明「没有内容真源」，不会凭空编。
 
 ## 6. 用量账本
 

@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -142,6 +143,59 @@ def render_deck(pptx_path: str, out_dir: str, expect_pages: int, width: int = RE
     finally:
         shutil.rmtree(profile, ignore_errors=True)
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ────────────────────────── 原页渲染（逐页核对用，按需触发）──────────────────────────
+
+_RENDER_LOCKS: Dict[str, threading.Lock] = {}
+_RENDER_GUARD = threading.Lock()
+
+
+def _render_lock(nid: str) -> threading.Lock:
+    with _RENDER_GUARD:
+        return _RENDER_LOCKS.setdefault(nid, threading.Lock())
+
+
+def ensure_rendered(nid: str) -> Dict[str, Any]:
+    """把上传的 pptx 渲染成逐页 PNG（幂等、按 job 串行），供「逐页复核」显示 PPT 实际页面。
+
+    上传刻意不做渲染（秒回、不花钱）；第一次进入复核步骤时前端才调本函数，之后走磁盘缓存。
+    页数校验沿用 render_deck 的铁律：渲染页数与 PPT 页数不一致时中止，绝不错页。
+    """
+    job = job_row(nid)
+    if not job:
+        raise ValueError("备注任务不存在")
+    source = job.get("source_path") or ""
+    if not source or not os.path.isfile(source):
+        raise ValueError("上传的原文件已不在磁盘上，无法渲染原页")
+
+    def current_rows() -> List[Dict[str, Any]]:
+        return page_rows(nid)
+
+    def missing(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [r for r in rows if not (r.get("render_path") and os.path.isfile(r["render_path"] or ""))]
+
+    rows = current_rows()
+    if not rows:
+        raise ValueError("这个任务还没有页面记录")
+    rendered = False
+    if missing(rows):
+        with _render_lock(nid):
+            rows = current_rows()                       # 等锁期间别的请求可能已经渲染完
+            if missing(rows):
+                render_dir = os.path.join(config.FILES_DIR, "notes", nid)
+                pngs = render_deck(source, render_dir, int(job.get("pages") or 0))   # 页数不符会抛 ValueError
+                for i, row in enumerate(current_rows(), 1):
+                    if i <= len(pngs):
+                        db.update("notes_pages", row["id"], dict(render_path=pngs[i - 1]))
+                db.update("notes_jobs", nid, dict(render_dir=render_dir))
+                rendered = True
+
+    pages = [dict(page_no=int(r["page_no"]),
+                  image_url="/files/notes/%s/p%03d.png" % (nid, int(r["page_no"])))
+             for r in current_rows()
+             if r.get("render_path") and os.path.isfile(r["render_path"] or "")]
+    return dict(rendered=rendered, page_count=len(current_rows()), pages=pages)
 
 
 # ────────────────────────── 解析 pptx（文本框 / 表格 / 已有备注）──────────────────────────

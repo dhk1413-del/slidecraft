@@ -16,6 +16,7 @@ import {
   exportNotes,
   generateNotes,
   getNotesJob,
+  renderNotesPages,
   regenerateNote,
   saveNote,
 } from '../api'
@@ -124,6 +125,30 @@ function NotesWizard({ nid }: { nid: string }) {
     if (hasSession || !data || detail.loading || running || reviewState.busy) return
     if (step === 1 && (data.notes_done ?? 0) > 0) setStep(2)
   }, [hasSession, data, detail.loading, running, reviewState.busy, step])
+  // 逐页复核要显示「上传 PPT 的实际页面」：上传时刻意不渲染（秒回不花钱），进第②步时按需渲染一次。
+  const [rendering, setRendering] = useState(false)
+  const [renderError, setRenderError] = useState<string | null>(null)
+  const renderRequested = useRef(false)
+  const pagesWithoutImage = (detail.data?.pages_detail ?? []).filter((p) => !p.image_url).length
+  const requestRender = useCallback(async () => {
+    if (rendering) return
+    setRendering(true)
+    setRenderError(null)
+    try {
+      await renderNotesPages(nid)
+      reload()
+    } catch (e) {
+      setRenderError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRendering(false)
+    }
+  }, [nid, reload, rendering])
+  useEffect(() => {
+    if (step !== 2 || running || detail.loading || !detail.data) return
+    if (renderRequested.current || pagesWithoutImage === 0) return
+    renderRequested.current = true
+    void requestRender()
+  }, [step, running, detail.loading, detail.data, pagesWithoutImage, requestRender])
   const onReviewState = useCallback((unsaved: number, busy: boolean) => setReviewState(prev =>
     prev.unsaved === unsaved && prev.busy === busy ? prev : { unsaved, busy }), [])
   const onNotesChanged = useCallback(() => {
@@ -351,6 +376,7 @@ function NotesWizard({ nid }: { nid: string }) {
       {/* 第二步：复核组件始终挂载，切换步骤保留草稿 */}
       <div className="card">
         <NoteReviewer nid={nid} pages={pages} running={running} active={step === 2}
+          rendering={rendering} renderError={renderError} onRetryRender={() => void requestRender()}
           onChanged={onNotesChanged} onState={onReviewState} />
       </div>
 
@@ -430,6 +456,9 @@ function NoteReviewer({
   onChanged,
   active,
   onState,
+  rendering,
+  renderError,
+  onRetryRender,
 }: {
   nid: string
   pages: NotePage[]
@@ -437,6 +466,10 @@ function NoteReviewer({
   onChanged: () => void
   active: boolean
   onState: (unsaved: number, busy: boolean) => void
+  /** 正在渲染原页（首次进复核步骤时按需触发） */
+  rendering: boolean
+  renderError: string | null
+  onRetryRender: () => void
 }) {
   const [restored] = useState(() => readSession(nid))
   const [idx, setIdx] = useState(restored.idx ?? 0)
@@ -615,8 +648,22 @@ function NoteReviewer({
               />
             </a>
           ) : (
-            <div className="text-body-sm text-ink-sub">
-              {page.text_source?.trim() ? <pre className="max-h-[38vh] overflow-auto whitespace-pre-wrap font-sans">{page.text_source}</pre> : '这一页没有预览图或可提取文字，可手工填写备注'}
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-body-sm text-ink-sub">
+              {rendering ? (
+                <span className="df-breathing">正在渲染 PPT 原页…（首次约 10~30 秒，之后走缓存）</span>
+              ) : (
+                <>
+                  {renderError && (
+                    <div className="error-box text-body-sm" role="alert">
+                      原页渲染失败：{renderError}
+                      <button type="button" className="link ml-2" onClick={onRetryRender}>重试</button>
+                    </div>
+                  )}
+                  {page.text_source?.trim()
+                    ? <pre className="max-h-[38vh] overflow-auto whitespace-pre-wrap font-sans">{page.text_source}</pre>
+                    : '这一页没有预览图或可提取文字，可手工填写备注'}
+                </>
+              )}
             </div>
           )}
         </div>

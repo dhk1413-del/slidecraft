@@ -184,6 +184,36 @@ def main() -> int:
         check("页数不一致时中止（防备注错页）", refused)
         db.update("notes_jobs", nid, dict(pages=4))
 
+        print("\nT8 按需渲染原页（逐页复核显示 PPT 实际页面）")
+        db.x("UPDATE notes_pages SET render_path=NULL WHERE job_id=?", (nid,))
+        calls = []
+
+        def fake_render(path, out_dir, expect_pages, width=0):
+            os.makedirs(out_dir, exist_ok=True)
+            pngs = []
+            for i in range(1, expect_pages + 1):
+                fp = os.path.join(out_dir, "p%03d.png" % i)
+                with open(fp, "wb") as f:
+                    f.write(b"\x89PNG\r\n")
+                pngs.append(fp)
+            calls.append((path, expect_pages))
+            return pngs
+
+        real_render = slide_notes.render_deck
+        slide_notes.render_deck = fake_render
+        try:
+            first = slide_notes.ensure_rendered(nid)
+            check("首次渲染：rendered=True 且页数完整", first["rendered"] is True and first["page_count"] == 4)
+            check("每页给出可直接访问的 /files/notes/... 地址",
+                  all(p["image_url"].startswith("/files/notes/%s/" % nid) for p in first["pages"]))
+            check("render_deck 只被调用一次", len(calls) == 1, str(calls))
+            second = slide_notes.ensure_rendered(nid)
+            check("第二次命中磁盘缓存、不再渲染", second["rendered"] is False and len(calls) == 1)
+            pub = slide_notes.job_detail(nid)["pages_detail"]
+            check("任务详情带出 image_url（前端据此显示原页）", all(p["image_url"] for p in pub))
+        finally:
+            slide_notes.render_deck = real_render
+
         print("\nT7 无备注时导出 → 明确报错")
         db.x("UPDATE notes_pages SET note='', note_status='pending' WHERE job_id=?", (nid,))
         refused2 = False

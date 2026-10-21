@@ -40,6 +40,8 @@ export interface ProviderSetting {
   default_size: string
   needs_proxy: boolean
   unit_price_cny: number | null
+  /** 视觉模型兜底：没单独填视觉 key，当前复用 GuaiHub 中转 key */
+  fallback?: boolean
 }
 
 export interface TextSetting {
@@ -562,6 +564,13 @@ export interface NotesJob {
   error?: string
   created_at: string
   updated_at: string
+}
+
+/** POST /api/notes/{nid}/render：按需渲染原页（幂等；第二次 rendered=false） */
+export interface NotesRenderResponse {
+  rendered: boolean
+  page_count: number
+  pages: Array<{ page_no: number; image_url: string }>
 }
 
 export interface NotesJobDetail extends NotesJob {

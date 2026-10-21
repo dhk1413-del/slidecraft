@@ -1222,6 +1222,20 @@ def notes_detail(nid: str) -> Dict[str, Any]:
     return detail
 
 
+@app.post("/api/notes/{nid}/render")
+def notes_render(nid: str) -> Dict[str, Any]:
+    """按需把上传的 pptx 渲染成逐页 PNG（幂等）：逐页复核里显示 PPT 实际页面用。
+
+    首次调用跑一次 LibreOffice（约 10~30 秒），之后走磁盘缓存；页数不一致抛 400（防错页）。
+    """
+    if not slide_notes.job_row(nid):
+        raise HTTPException(404, "备注任务不存在")
+    try:
+        return slide_notes.ensure_rendered(nid)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.delete("/api/notes/{nid}")
 def notes_delete(nid: str) -> Dict[str, Any]:
     if not slide_notes.job_row(nid):

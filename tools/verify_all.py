@@ -33,6 +33,7 @@ TOOLS = [
     ("test_native_status", "slides 的 native_status 汇报口径（别把从未构建报成待重建）"),
     ("test_native_render", "原生可编辑渲染器（不伪造内容）"),
     ("test_vision_parse", "视觉解析（宽容解析/图表归一化）"),
+    ("test_vision_config", "视觉模型配置（GuaiHub 中转 key 兜底/百炼优先/脱敏）"),
     ("test_dashscope_image", "百炼生图适配器（模型族分流）"),
     ("test_image_retry", "生图重试与链路切换（瞬态重试/代理↔直连/401 不重试）"),
     ("test_slide_notes", "讲稿备注模块"),

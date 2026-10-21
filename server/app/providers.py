@@ -498,7 +498,9 @@ def analyze_slide_with_qwen(image_path: str) -> Dict[str, Any]:
         if isinstance(scene.get("chart_data"), list):
             scene["chart_data_raw"] = scene["chart_data"]
             scene["chart_data"] = normalize_chart_data(scene["chart_data"])
-        return dict(ok=True, scene=scene, provider="qwen_vl" if vp.get("is_bailian") else "custom_vision",
+        return dict(ok=True, scene=scene,
+                    provider="guaihub_vision" if vp.get("fallback")
+                    else "qwen_vl" if vp.get("is_bailian") else "custom_vision",
                     model=vp["default_model"], finish_reason=res.get("finish_reason"),
                     latency_ms=int((time.time() - t0) * 1000))
     except Exception as e:  # noqa: BLE001
