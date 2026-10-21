@@ -80,14 +80,26 @@ async function toApiError(res: Response): Promise<ApiError> {
   return new ApiError(detail, res.status)
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let res: Response
-  try {
-    res = await fetch(`${API_BASE}${path}`, init)
-  } catch {
-    // 服务未启动或网络中断时，使用共享的标准部署提示。
-    throw new ApiError(BACKEND_HINT, 0, true)
+const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+
+/** GET 在服务重启 / 短暂断网时自动重试（写请求不重试，避免重复提交）。 */
+async function fetchWithRetry(path: string, init?: RequestInit): Promise<Response> {
+  const method = (init?.method || 'GET').toUpperCase()
+  const attempts = method === 'GET' ? 3 : 1
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fetch(`${API_BASE}${path}`, init)
+    } catch {
+      if (init?.signal?.aborted) break
+      if (attempt + 1 < attempts) await sleep(600 * 2 ** attempt)
+    }
   }
+  // 服务未启动或网络中断时，使用共享的标准部署提示。
+  throw new ApiError(BACKEND_HINT, 0, true)
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetchWithRetry(path, init)
   if (!res.ok) throw await toApiError(res)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T

@@ -247,9 +247,13 @@ export function ProjectWorkbench({
           <div className="deck-slide-head">
             <span className="num font-semibold text-primary">P{currentSlide.page_no}</span>
             <span className="font-semibold">第 <span className="num">{currentSlide.page_no}</span> 页</span>
-            <span className={cn('status', slideState(currentSlide).cls)}>{slideState(currentSlide).text}</span>
-            <span className="tag num">展示序号 {currentSlide.display_order ?? currentSlide.page_no}</span>
             <span className="flex-1" />
+            <button type="button" className="btn btn-secondary rounded-full"
+              disabled={running || !stylePackId || !targetPages.length || slides.some((s) => s.keep && !s.content_ready)}
+              title={!stylePackId ? '未选择风格包：请先在向导里选择风格' : `一次性提交全部 ${targetPages.length} 个参与页生成（提交前会弹报价确认）`}
+              onClick={() => void startGenerate()}>
+              {submitting ? '提交中…' : '生成全部页面'}
+            </button>
             <button type="button" className="btn btn-primary rounded-full" disabled={running || !currentSlide.content_ready}
               title={currentSlide.content_ready ? '只重新生成这一页，其它页与版本不受影响（会重新计费）' : '内容未就绪：先补齐并确认内容'}
               onClick={() => void optimize(currentSlide.page_no)}>
@@ -270,14 +274,12 @@ export function ProjectWorkbench({
               <span>来源：{currentSlide.provider === 'import' ? '原稿导入' : `${currentSlide.provider || '—'}/${currentSlide.model || '—'}`}</span>
               <span>尺寸：<span className="num">{currentSlide.size || '—'}</span></span>
               <span>耗时：<span className="num">{ms(currentSlide.latency_ms)}</span></span>
-              <span>成本：<span className="num">{currentSlide.cost_cny ?? 0}</span> 元</span>
               <span>核对：{currentSlide.provider === 'import' ? '原稿导入，无需生成核对' : currentSlide.review_required ? '待核对' : '已人工核对'}</span>
             </div>
           </>}
 
           {currentSlide.keep && !['failed', 'interrupted', 'running'].includes(currentSlide.status) && (!currentSlide.content_ready || !currentSlide.image_url) && (
             <div className="panel-alt flex flex-wrap items-center gap-3">
-              <span className="num">{!currentSlide.content_ready ? '内容未就绪，请补齐并确认内容' : '尚无可用结果，可重新生成此页'}{currentSlide.error ? `：${currentSlide.error}` : ''}</span>
               <Link className="btn btn-secondary" to={`/wizard/${projectId}/3`}>查看并确认内容 / 排除此页</Link>
               {currentSlide.content_ready && <button type="button" className="btn btn-secondary" disabled={running} onClick={() => void optimize(currentSlide.page_no)}>生成本页</button>}
             </div>)}
@@ -367,7 +369,7 @@ export function ProjectWorkbench({
             <button type="button" className={cn('btn rounded-full', generatedPages.length > 0 ? 'btn-secondary' : 'btn-primary')} disabled={running || !stylePackId || !targetPages.length || slides.some(s => s.keep && !s.content_ready)} title={!stylePackId ? '未选择风格包：请先在向导里选择风格' : '提交 POST /api/projects/{id}/generate'} onClick={() => void startGenerate()}>{submitting ? '提交中…' : genJobId ? `重新生成参与页（${targetPages.length} 页）` : `生成参与页（${targetPages.length} 页）`}</button>
             {generatedPages.length > 0 && (
               <>
-                <Link className="btn btn-secondary rounded-full" to={`/editable/${projectId}?step=3`} title="进入「图片转可编辑」：把这些页面逐页精细重建为可编辑对象（每页约 13 分钟，可随时停止）">转可编辑 PPT</Link>
+                <Link className="btn btn-secondary rounded-full" to={`/editable/${projectId}?step=2`} title="进入「图片转可编辑」：先勾选要转换的页面，再逐页精细重建（每页约 13 分钟，可随时停止）">转可编辑 PPT</Link>
                 <button type="button" className="btn btn-primary rounded-full" disabled={!canDownload} title={downloadTitle} onClick={() => void downloadImageDeck()}>{downloading ? '正在导出…' : '下载图片集 PPT'}</button>
               </>
             )}

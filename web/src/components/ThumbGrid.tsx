@@ -58,6 +58,12 @@ export interface SlideThumbProps {
   disabledReason?: string
   onToggle?: () => void
   onOpen?: () => void
+  /** 覆盖默认角标（转可编辑进度页需要「图片版 / 转换中 / 排队中 / 已完成」口径） */
+  badgeOverride?: ThumbBadge
+  /** 缩略图上的浮层（转换进度：spinner / 排队中） */
+  overlay?: ReactNode
+  /** 是否显示缩略图下方的「源页号 / 展示序号」说明（转可编辑进度页不需要） */
+  showMeta?: boolean
 }
 
 export function SlideThumb({
@@ -71,12 +77,15 @@ export function SlideThumb({
   disabledReason,
   onToggle,
   onOpen,
+  badgeOverride,
+  overlay,
+  showMeta = true,
 }: SlideThumbProps) {
   const [broken, setBroken] = useState(false)
   const [loaded, setLoaded] = useState(false)
   useEffect(()=>{setBroken(false);setLoaded(false)},[slide?.image_url])
   const state = slideState(slide, progress)
-  const badge = thumbBadge(state, slide)
+  const badge = badgeOverride ?? thumbBadge(state, slide)
   const showImage = slide?.image_url && !broken
 
   const tooltip = disabled && disabledReason
@@ -145,9 +154,10 @@ export function SlideThumb({
             </span>
           )}
         </span>
+        {overlay && <div className="absolute inset-0 z-10">{overlay}</div>}
       </div>
 
-      {slide && <p className="num m-0 text-caption">源页号 {slide.source_page_no ?? '—'} / 展示序号 {slide.display_order ?? slide.page_no} · {state==='done'?'已完成':badge.text}</p>}
+      {showMeta && slide && <p className="num m-0 text-caption">源页号 {slide.source_page_no ?? '—'} / 展示序号 {slide.display_order ?? slide.page_no} · {state==='done'?'已完成':badge.text}</p>}
       {slide?.content_stale && <span className="status status-warn">基于旧内容</span>}
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-caption text-ink-sub" title={title}>

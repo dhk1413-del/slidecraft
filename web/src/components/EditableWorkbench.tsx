@@ -17,7 +17,12 @@ import { useToast } from './Toast'
 /** 现场里「这页已经转好了」的状态值（editppt 状态机的记录口径） */
 const CONVERTED = ['recorded', 'accepted', 'complete']
 
-export function EditableWorkbench({ projectId, autoStart = false }: { projectId: string; autoStart?: boolean }) {
+export function EditableWorkbench({ projectId, autoStart = false, initialSelected }: {
+  projectId: string
+  autoStart?: boolean
+  /** 从「选择页面」进入时带过来的页号；缺省按「未转页优先」自动勾选 */
+  initialSelected?: number[]
+}) {
   const toast = useToast()
   const [engine, setEngine] = useState<EditableEngine | null>(null)
   const [selected, setSelected] = useState<number[]>([])
@@ -64,13 +69,15 @@ export function EditableWorkbench({ projectId, autoStart = false }: { projectId:
   const readyPageNos = readySlides.map((s) => s.page_no)
   const pendingPages = readyPageNos.filter((n) => !convertedPages.includes(n))
 
-  // 默认勾选：优先「还没转的页」；全都转过了就勾全部（便于重转）
+  // 默认勾选：优先页面选择步带过来的页；否则「还没转的页」；全都转过了就勾全部（便于重转）
   const seeded = useRef(false)
   useEffect(() => {
     if (seeded.current || !readyPageNos.length) return
     seeded.current = true
+    const preset = (initialSelected ?? []).filter((no) => readyPageNos.includes(no))
+    if (preset.length) { setSelected(preset); return }
     setSelected(pendingPages.length ? pendingPages : readyPageNos)
-  }, [readyPageNos.length, pendingPages.length])
+  }, [readyPageNos.length, pendingPages.length, initialSelected?.length])
 
   useEffect(() => {
     setCurrentIndex((index) => Math.min(index, Math.max(0, readySlides.length - 1)))
