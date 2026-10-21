@@ -485,7 +485,7 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
         </div>}
         </div>
         <div className="gen-panel-foot">
-          <span className="text-body-sm text-ink-sub">{file ? '已选择文件，点右侧开始分析页面' : `支持 PPTX · PDF，${UPLOAD_SIZE_HINT}`}</span>
+          <span className="flex-1" />
           <button type="button" className="btn btn-primary rounded-full px-6" disabled={!file || busy} onClick={() => void recognize()}>{busy ? '正在分析页面…' : '开始 PPT 美化'}</button>
         </div>
         {busy && <p role="status" className="m-0 text-body-sm text-ink-sub">正在上传文件并分析页面，请稍候…</p>}
