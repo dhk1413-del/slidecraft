@@ -17,7 +17,7 @@
 
 | 方法 | 路径 | 说明 | 响应 |
 |---|---|---|---|
-| GET | `/api/health` | 存活 + 能力探测 | `{"ok":true,"version":"0.3.0","port":8640,"db":"ok","providers":{"image":{"guaihub":true,"dashscope":false,"local_render":true},"text":{"deepseek":false}},"network":{"mode":"http_proxy","http_proxy":"http://127.0.0.1:7897"}}` |
+| GET | `/api/health` | 存活 + 能力探测 | `{"ok":true,"version":"0.4.0","port":8640,"db":"ok","providers":{"image":{"guaihub":true,"dashscope":false,"local_render":true},"text":{"deepseek":false}},"network":{"mode":"http_proxy","http_proxy":"http://127.0.0.1:7897"}}` |
 | GET | `/api/settings` | 读取设置（**key 掩码**） | `{"providers":[{"id":"guaihub","label":"GuaiHub · GPT Image 2","key_set":false,"key_masked":"","default_model":"gpt-image-2","default_size":"2K","needs_proxy":true,"unit_price_cny":null}],"text":{"id":"deepseek","key_set":false,"model":""},"network":{"mode":"http_proxy"}}` |
 | PUT | `/api/settings` | 写 key/模型/Base URL/单价（**热加载，无需重启**） | body `{"provider_id":"guaihub","api_key":"sk-...","base_url":"https://api.guaihub.cc/v1","default_model":"gpt-image-2","default_size":"2K","unit_price_cny":"1.5"}` 或 `{"network":{"mode":"tun"}}` → 返回同 GET /api/settings。`unit_price_cny` 是**元/张**（字符串，空串=清除覆盖，存为 `price:<provider_id>` 覆盖 yaml）；**未填单价时账本金额记 0，不代表免费**。 |
 | POST | `/api/settings/test` | 连通性测试（后端按 `needs_proxy` 自动决定走不走代理）。body：`{"provider_id":"guaihub"}`；可选 `api_key` 用于测试尚未保存的输入框密钥，**仅用于本次请求，绝不落库、不回显、不写日志**。 | `{"provider_id":"guaihub","ok":true,"status":200,"latency_ms":412,"message":"连通且鉴权通过"}` |

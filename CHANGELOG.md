@@ -7,6 +7,41 @@
 `tools/check_version_sync.py` 在门禁里强制对齐，`server/app/main.py` 直接读该文件（`/api/health` 可查）。
 发版流程见 [AGENTS.md](AGENTS.md#发版流程)。
 
+## [0.4.0] - 2026-10-21
+
+### 新增
+
+- **多机 page worker**：「图片转可编辑」的 page worker 可派到装了 Harness 的辅助机，与本机 worker 按槽位
+  一起并发（settings `editppt.remote_workers`，JSON 数组；每项 `host/slots/workdir/dsh/profile/skill_dir/editppt_cli`）。
+  派发时 rsync 页面目录过去、远端 `dsh --profile headless` 重建、回收产物并改写回本机路径，
+  由**平台**统一 `run record`/`finalize` 做权威校验；远端不可用不影响本机兜底。默认关闭（`[]` 即单机）。
+- **NAS 自动部署**：新增 `make sync-nas`（`tools/sync_to_nas.sh`）——rsync 代码到 NAS 生产实例
+  （保留 VM 的 `data/`、`.env`、`.venv`、`node_modules`）→ VM 上重建前端 → 重启 `slidecraft.service`
+  → 校验 `/api/health`。**安全闸**：VM 上有 `queued/running/cancelling` 作业或 headless page worker 时
+  拒绝部署/重启（`SYNC_FORCE=1` 可强制），避免打断正在跑的生成或转换。
+- **图片转可编辑独立流程完善**：②「选择页面」可全选/逐页勾选；③「转换结果」展示转换进度
+  （缩略图状态浮层、逐页结果、停止/继续/下载）。从结果页进入时先到选页步。
+- **生成结果页新增「生成全部页面」**：一次性提交全部参与页；底栏新增「下载图片集 PPT」「转可编辑 PPT」。
+- **备注**：历史任务新增「查看」，可回到之前的任务查看已生成的备注；「选择生成方式」改为两个按钮并标注区别。
+- **GET 自动重试**：服务重启或短暂断网时，GET 请求自动重试 3 次（指数退避）；写请求不重试，避免重复提交。
+
+### 变更
+
+- 生成页面去掉「生成结果 / 按图片版重建」页签，改为底栏按钮直达。
+- 首页去掉三段说明文字；美化上传页去掉底部重复的格式提示。
+- 结果页去掉成本展示。
+
+### 修复
+
+- 修复同一项目可同时提交多个「图片转可编辑」任务、并发写同一份现场的问题：现在会明确提示
+  「该项目已有转换任务在跑，请等它结束或先停止后再提交」。
+
+### 升级
+
+- **无新增 Python / Node 依赖**；`data/` 与 `DECKFORGE_*` 变量保持不变，替换代码后重启即可。
+- 多机 worker 默认关闭；需要时在设置里写 `editppt.remote_workers` JSON 数组，辅助机前置条件见 `AGENTS.md`。
+- NAS 部署可选：`make sync-nas`，目标可用 `NAS_HOST` / `NAS_DIR` / `NAS_PORT` 覆盖。
+
 ## [0.3.0] - 2026-10-19
 
 ### 新增
