@@ -27,6 +27,8 @@ credentials.json
 web/node_modules/
 web/dist/
 server/pptx/node_modules/
+# 第三方 skill 的打包产物（由 openviking-skills 导出，不属于本仓库内容）
+skill-output/
 
 # Python / Node 缓存
 __pycache__/

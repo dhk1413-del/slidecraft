@@ -6,7 +6,7 @@
 PY   := .venv/bin/python
 PORT := 8641
 
-.PHONY: help verify verify-fast test build lint guard hooks release-check run stop restart
+.PHONY: help verify verify-fast test build lint guard hooks release-check run stop restart sync-nas
 
 help:                ## 列出可用命令
 	@grep -E '^[a-z][a-z-]*:.*##' Makefile | sed 's/:.*##/\t/' | column -t -s "$$(printf '\t')"
@@ -50,3 +50,6 @@ stop:                ## 停止服务
 	bash server/stop-daemon.sh
 
 restart: stop run    ## 重启服务（改后端后必须走这条，别在终端里前台起）
+
+sync-nas:            ## 同步本机改动到 NAS 虚拟机（保留 VM 的 data/.env）并重建重启
+	bash tools/sync_to_nas.sh

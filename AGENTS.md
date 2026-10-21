@@ -30,8 +30,8 @@
    新克隆先 `make hooks` 启用钩子；提交/推送由 `tools/check_no_secrets.py` 强制拦截（命中只报
    `文件:行号`，**不回显内容**），`make verify` / `make verify-fast` 已内置 `--head` 检查，`make guard` 可单独全历史体检。
    若发现历史上不慎提交过 key：**第一优先是撤销并轮换该 key**（改写历史要 force push，不擅自做）。
-6. 提交前必须跑门禁并做对应验证；本仓库当前流程是「验收通过后由负责 agent 提交，需要时推送到 GitHub」
-   （推送前确认远端与提交内容，别把 `data/`、`web/dist/` 带进去）。
+6. 提交前必须跑门禁并做对应验证；**GitHub 推送只在用户明确要求时做**（2026-10-20 明确：不主动 push），
+   NAS 部署则按「同步到 NAS」自动执行。推送前确认远端与提交内容，别把 `data/`、`web/dist/` 带进去。
 
 ## 自检命令（每次改完都要跑，并把真实输出贴出来）
 
@@ -94,6 +94,21 @@ git -c http.proxy= -c https.proxy= push origin --follow-tags
   cp /path/to/your/previews/* "style-packs/styles/$style_id/previews-local/"
   ```
 - 服务常驻：bash server/start-lan.sh（:8641，脱离终端）；停：bash server/stop-daemon.sh
+- **同步到 NAS（2026-10-20 起，自动执行）**：Mac 上的开发改动要**自动**同步到 NAS 虚拟机 `nas-ubutu-02`
+  上的生产实例（用户 2026-10-20 明确：NAS 自动推送、GitHub 仅在明确要求时推送）。
+  一条命令：`make sync-nas`（= `bash tools/sync_to_nas.sh`）——rsync 代码（**保留** VM 上的 `data/`、`.env`、
+  `.venv/`、`node_modules/`）→ VM 上重建前端 → 重启 `slidecraft.service` → 校验 `/api/health`。
+  默认目标 `root@nas-ubutu-02:/opt/slidecraft`，可用 `NAS_HOST` / `NAS_DIR` / `NAS_PORT` 覆盖；
+  **每轮改完、跑完门禁后直接执行**，并在交付里贴出 VM 的版本与 health 结果。
+  **安全闸**：VM 上有 `queued/running/cancelling` 作业或 headless page worker 时脚本会直接退出（不部署、不重启），
+  避免打断正在跑的生成/转可编辑作业；确需强制覆盖用 `SYNC_FORCE=1 make sync-nas`。
+- **多机 worker（2026-10-20 起）**：`editppt.remote_workers`（settings 里的 JSON 数组）可把「图片转可编辑」的 page worker
+  派到装了 Harness 的辅助机，与平台本机 worker 一起并发。每项：
+  `{"host","slots","workdir","dsh","profile","skill_dir","editppt_cli"}`，默认 workdir `/opt/editppt-workers`。
+  辅助机前置：dsh headless + `image-to-editable-ppt` skill + editppt venv/config（生图 key、PaddleOCR token）、
+  平台 → 辅助机 SSH 免密；派发时平台 rsync `pages/page_XXX/` 过去、远端 `dsh --profile headless` 重建、
+  回收产物（路径改回本机）后由**平台** `run record`/`finalize` 做权威校验。远端不可用时不影响本机兜底。
+  当前辅助机：`root@192.168.110.13`（nas-ubutu-04，2 槽）。`editppt.remote_workers=[]` 即回到单机。
 - **重启的正确姿势（踩过坑，务必照做）**：改完后端代码后，用
   `bash server/stop-daemon.sh && bash server/start-lan.sh`；
   **绝对不要**在 exec/终端会话里前台起服务（`bash server/run.sh` 直接跑）——实测会话结束时进程会被一起带走，
