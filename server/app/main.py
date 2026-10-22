@@ -727,6 +727,92 @@ def content_ready(row: Dict[str, Any]) -> bool:
                 (str(row.get("outline") or "").strip() or any(str(p).strip() for p in points) or material))
 
 
+# ── 页面删除 / 撤销恢复（内容梳理里删除单页）──────────────────────────────
+# 硬删除 + 快照撤销：不引入 deleted 列，避免所有既有查询都要加过滤。
+# 撤销时按快照重建该页（id 会换新，内容/图片/章节等逐字段还原），并放回原页码。
+_SLIDE_RESTORE_FIELDS = (
+    "title", "role", "layout", "outline", "points_json", "must_keep_json", "keep", "image_path",
+    "width", "height", "status", "provider", "model", "size", "cost_cny", "latency_ms", "editable",
+    "native_scene_json", "native_status", "native_object_count", "native_warnings_json", "verify_json",
+    "error", "source_page_no", "source_available", "content_revision", "generated_revision",
+    "modules_json", "source_note", "source_content_json", "material_strategy", "generated_style",
+    "generated_content_json", "reviewed_image", "chapter_no", "chapter_title",
+)
+
+
+def _renumber_slides(pid: str) -> None:
+    """按当前顺序把页码/展示序号重排为 1..N（删除或恢复后调用）。"""
+    rows = db.q("SELECT id, page_no, display_order FROM slides WHERE project_id=? ORDER BY page_no, display_order", (pid,))
+    for index, row in enumerate(rows, 1):
+        if row["page_no"] != index or row["display_order"] != index:
+            db.x("UPDATE slides SET page_no=?, display_order=? WHERE id=?", (index, index, row["id"]))
+
+
+def _sync_pages_after_mutation(pid: str) -> None:
+    """删除/恢复后同步项目侧状态：页数、页清单草稿（按 slides 重建）、内容确认失效。"""
+    rows = db.q("SELECT * FROM slides WHERE project_id=? ORDER BY page_no", (pid,))
+    drafts = [dict(page_no=row["page_no"], title=row["title"], keep=bool(row["keep"]),
+                   layout=row["layout"], chapter_no=row["chapter_no"] or 0,
+                   chapter_title=row["chapter_title"] or "") for row in rows]
+    db.update("projects", pid, dict(
+        target_pages=len(rows),
+        page_drafts_json=json.dumps(drafts, ensure_ascii=False),
+        pages_confirmed_at=db.now(),
+        content_confirmed_at="",
+    ))
+
+
+@app.delete("/api/projects/{pid}/slides/{slide_id}")
+def delete_slide(pid: str, slide_id: str) -> Dict[str, Any]:
+    """删除单页（内容梳理里用）。返回删除前的完整快照，前端据此提供 10 秒撤销。"""
+    guard_generation(pid)
+    get_project(pid)
+    row = db.q1("SELECT * FROM slides WHERE project_id=? AND id=?", (pid, slide_id))
+    if not row:
+        raise HTTPException(404, "页面不存在")
+    total = int((db.q1("SELECT COUNT(*) AS n FROM slides WHERE project_id=?", (pid,)) or {"n": 0})["n"])
+    if total <= 1:
+        raise HTTPException(400, "至少要保留 1 页；如需换页请先新增页面")
+    snapshot = dict(row)
+    db.x("DELETE FROM slides WHERE id=?", (slide_id,))
+    db.x("DELETE FROM slide_versions WHERE slide_id=?", (slide_id,))
+    _renumber_slides(pid)
+    _sync_pages_after_mutation(pid)
+    return dict(ok=True, deleted=snapshot, page_no=int(snapshot.get("page_no") or 0))
+
+
+@app.post("/api/projects/{pid}/slides/restore")
+def restore_deleted_slide(pid: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """撤销删除：按前端回传的快照重建该页，并放回原页码。"""
+    guard_generation(pid)
+    get_project(pid)
+    page = payload.get("page") or {}
+    if not isinstance(page, dict) or not page:
+        raise HTTPException(400, "缺少要恢复的页面快照")
+    try:
+        page_no = int(payload.get("page_no") or page.get("page_no") or 0)
+    except (TypeError, ValueError):
+        page_no = 0
+    if page_no < 1:
+        raise HTTPException(400, "缺少恢复位置（page_no）")
+    existing = db.q("SELECT id, page_no FROM slides WHERE project_id=? ORDER BY page_no", (pid,))
+    page_no = min(page_no, len(existing) + 1)
+    for row in sorted([r for r in existing if r["page_no"] >= page_no], key=lambda r: -r["page_no"]):
+        db.x("UPDATE slides SET page_no=?, display_order=? WHERE id=?",
+             (row["page_no"] + 1, row["page_no"] + 1, row["id"]))
+    record = dict(id=db.uid("s"), project_id=pid, page_no=page_no, display_order=page_no,
+                  created_at=db.now(), updated_at=db.now())
+    for field in _SLIDE_RESTORE_FIELDS:
+        if field in page:
+            record[field] = page[field]
+    record.setdefault("title", "恢复的页面")
+    record["keep"] = 1
+    db.insert("slides", record)
+    _renumber_slides(pid)
+    _sync_pages_after_mutation(pid)
+    return dict(ok=True, slide_id=record["id"], page_no=page_no)
+
+
 @app.patch("/api/projects/{pid}/slides/{slide_id}/content")
 def save_content(pid: str, slide_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     page = db.q1("SELECT page_no FROM slides WHERE project_id=? AND id=?", (pid, slide_id))

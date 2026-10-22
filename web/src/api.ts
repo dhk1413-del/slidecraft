@@ -421,6 +421,14 @@ export const beautifyOrigin = (id: string) => request<{ page_count: number; rend
 export const saveSlideContent = (pid:string, sid:string, payload: {revision:number; title:string; outline:string; points:string[]; modules:import('./types').ContentModule[]; source_note:string}) => request<Slide>(`/projects/${encodeURIComponent(pid)}/slides/${encodeURIComponent(sid)}/content`,jsonInit('PATCH',payload))
 export const reviewSlide = (pid:string, sid:string, image_url:string) => request<{ok:boolean}>(`/projects/${encodeURIComponent(pid)}/slides/${encodeURIComponent(sid)}/review`,jsonInit('POST',{image_url}))
 
+/** 删除单页（内容梳理）。返回删除前的完整快照，供「撤销」原样恢复。 */
+export const deleteSlide = (pid: string, sid: string) =>
+  request<{ ok: boolean; deleted: Slide; page_no: number }>(`/projects/${encodeURIComponent(pid)}/slides/${encodeURIComponent(sid)}`, { method: 'DELETE' })
+
+/** 撤销删除：把快照放回原页码（重建为新的 slide_id） */
+export const restoreSlide = (pid: string, payload: { page: Slide; page_no: number }) =>
+  request<{ ok: boolean; slide_id: string; page_no: number }>(`/projects/${encodeURIComponent(pid)}/slides/restore`, jsonInit('POST', payload))
+
 export const retrySlideOutline = (pid:string,sid:string,revision:number) => request<Slide>(`/projects/${encodeURIComponent(pid)}/slides/${encodeURIComponent(sid)}/outline-retry`,jsonInit('POST',{revision}))
 
 export interface TaskSnapshot {updated_at?:string;id:string; kind:string; status:string; total:number; done:number; message:string; version:number; pages_json:string}

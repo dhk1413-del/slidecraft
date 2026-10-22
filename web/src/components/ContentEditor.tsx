@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { configureProject, getSlides, retrySlideOutline, saveSlideContent, type ApiError } from '../api'
+import { configureProject, deleteSlide, getSlides, restoreSlide, retrySlideOutline, saveSlideContent, type ApiError } from '../api'
 import type { Slide, ContentModule } from '../types'
 import { finishPendingSaves, registerLeaveGuard } from '../router'
 import { ActionBar, PageRail, PagerArrow } from './FlowKit'
+import { useModalFocus } from '../hooks/useModalFocus'
 
 // This self-hosted application has no account system. Keep installation-local drafts isolated.
 const draftKey = (pid: string, sid: string) => `deckforge:draft:local-account:${pid}:${sid}`
 const editable = (s: Slide) => ({title:s.title, outline:s.outline || '', points:s.points || [], modules:s.modules || [], source_note:s.source_note || ''})
-export function ContentEditor({projectId, onConfirmed, onExclude, onSaveState}: {projectId:string; onConfirmed:()=>void; onExclude:(no:number)=>Promise<void>; onSaveState:(state:string)=>void}) {
+export function ContentEditor({projectId, onConfirmed, onExclude, onSaveState, onPagesMutated}: {projectId:string; onConfirmed:()=>void; onExclude:(no:number)=>Promise<void>; onSaveState:(state:string)=>void; onPagesMutated?:()=>void|Promise<void>}) {
   const [rows, setRows] = useState<Slide[]>([])
   const current = useRef<Slide[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -18,22 +19,58 @@ export function ContentEditor({projectId, onConfirmed, onExclude, onSaveState}: 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [serverRows,setServerRows] = useState<Record<string,Slide>>({})
+  /* 删除单页 + 10 秒撤销（硬删除 + 快照恢复，见 server 端 DELETE /slides/{id}） */
+  const [confirmDel, setConfirmDel] = useState<Slide | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [undo, setUndo] = useState<{ page: Slide; page_no: number } | null>(null)
+  const [undoBusy, setUndoBusy] = useState(false)
+  const delModalRef = useModalFocus(() => setConfirmDel(null))
   const conflicts=useRef<Record<string,number>>({})
   const active = useRef(true)
   useEffect(()=>{const values=Object.values(states);onSaveState(values.includes('保存失败')?'保存失败':values.includes('正在保存')?'正在保存':values.includes('未保存')?'未保存':'已保存')},[states,onSaveState])
   const publish = (next: Slide[]) => {current.current=next; if(active.current) setRows(next)}
+  /** 从服务端重载页清单（初始加载、删除/撤销后共用；保留本地未保存草稿语义） */
+  async function loadRows() {
+    const items = await getSlides(projectId)
+    if (!active.current) return
+    setServerRows(Object.fromEntries(items.map(s=>[s.slide_id,s])))
+    const next=items.filter(s=>s.keep).map(s=>{
+      const raw=localStorage.getItem(draftKey(projectId,s.slide_id))
+      if(raw) {try {const draft=JSON.parse(raw); dirty.current.add(s.slide_id); if(draft.revision !== s.content_revision) conflicts.current[s.slide_id]=s.content_revision || 1; return {...s,...draft.content,content_revision:draft.revision}} catch { /* retain unusable draft for recovery */ }}
+      return s
+    })
+    publish(next)
+    setStates(Object.fromEntries(next.map(s=>[s.slide_id,dirty.current.has(s.slide_id)?'未保存':'已保存'])))
+    setSelectedId(prev => next.some(row => row.slide_id === prev) ? prev : (next[0]?.slide_id ?? null))
+  }
+  async function removeCurrent() {
+    const target = confirmDel
+    if (!target) return
+    setDeleting(true); setError('')
+    try {
+      if (!await flush()) { setError('请先保存当前草稿，再删除页面'); return }
+      const res = await deleteSlide(projectId, target.slide_id)
+      localStorage.removeItem(draftKey(projectId, target.slide_id))
+      dirty.current.delete(target.slide_id)
+      setConfirmDel(null); setEditingId(null)
+      setUndo({ page: res.deleted, page_no: res.page_no })
+      await loadRows()
+      await onPagesMutated?.()
+    } catch (e) { setError((e as ApiError).detail) } finally { setDeleting(false) }
+  }
+  async function undoDelete() {
+    if (!undo || undoBusy) return
+    setUndoBusy(true); setError('')
+    try {
+      await restoreSlide(projectId, { page: undo.page, page_no: undo.page_no })
+      setUndo(null)
+      await loadRows()
+      await onPagesMutated?.()
+    } catch (e) { setError((e as ApiError).detail) } finally { setUndoBusy(false) }
+  }
   useEffect(() => {
     active.current=true
-    getSlides(projectId).then(items => {
-      setServerRows(Object.fromEntries(items.map(s=>[s.slide_id,s])))
-      const next=items.filter(s=>s.keep).map(s=>{
-        const raw=localStorage.getItem(draftKey(projectId,s.slide_id))
-        if(raw) {try {const draft=JSON.parse(raw); dirty.current.add(s.slide_id); if(draft.revision !== s.content_revision) conflicts.current[s.slide_id]=s.content_revision || 1; return {...s,...draft.content,content_revision:draft.revision}} catch { /* retain unusable draft for recovery */ }}
-        return s
-      })
-      publish(next)
-      setStates(Object.fromEntries(next.map(s=>[s.slide_id,dirty.current.has(s.slide_id)?'未保存':'已保存'])))
-    }).catch(e=>setError((e as ApiError).detail))
+    void loadRows().catch(e=>setError((e as ApiError).detail))
     const refresh=async()=>{try{const items=await getSlides(projectId);if(!active.current)return
       setServerRows(Object.fromEntries(items.map(s=>[s.slide_id,s])))
       publish(current.current.map(local=>{const remote=items.find(s=>s.slide_id===local.slide_id);if(!remote)return local
@@ -79,6 +116,7 @@ export function ContentEditor({projectId, onConfirmed, onExclude, onSaveState}: 
     return pending
   }
   useEffect(()=>{const timer=window.setTimeout(()=>{if(dirty.current.size)void flush()},700);return()=>window.clearTimeout(timer)},[rows])
+  useEffect(() => { if (!undo) return; const timer = window.setTimeout(() => setUndo(null), 10000); return () => window.clearTimeout(timer) }, [undo])
   async function confirm() {
     setBusy(true);setError('')
     try {if(!await finishPendingSaves()){setError('请先保存当前草稿，再确认内容');return}
@@ -101,6 +139,12 @@ export function ContentEditor({projectId, onConfirmed, onExclude, onSaveState}: 
   }
   return <div className="card"><h2 className="card-title">内容确认</h2>
     {error && <p role="alert" className="text-danger">{error}</p>}
+    {undo && <div className="panel-alt flex flex-wrap items-center gap-2" role="status">
+      <span>已删除第 <span className="num">{undo.page_no}</span> 页「{undo.page.title?.trim() || '无标题'}」，<strong>10 秒内可撤销</strong></span>
+      <span className="flex-1" />
+      <button type="button" className="btn btn-secondary h-8! text-body-sm" disabled={undoBusy} onClick={() => void undoDelete()}>{undoBusy ? '恢复中…' : '撤销'}</button>
+      <button type="button" className="link text-caption" onClick={() => setUndo(null)}>关闭</button>
+    </div>}
     <div className="deck-split">
       <PageRail label="页面列表" current={currentIndex} onSelect={selectPage}
         items={rows.map(row => ({key: row.slide_id, index: `P${row.page_no}`, label: row.title.trim() || '待补齐', dot: pageReady(row) ? 'done' as const : 'idle' as const, title: states[row.slide_id] || '已保存'}))} />
@@ -111,6 +155,9 @@ export function ContentEditor({projectId, onConfirmed, onExclude, onSaveState}: 
             {!pageReady(s) && <span className="status status-warn">待补齐</span>}
             <span className="flex-1" />
             <button type="button" className="btn btn-secondary rounded-full" onClick={() => {setEditingId(editingId === s.slide_id ? null : s.slide_id);void flush()}}>{editingId === s.slide_id ? '完成编辑' : '编辑内容'}</button>
+            <button type="button" className="btn btn-secondary rounded-full" disabled={locked || busy || deleting || rows.length <= 1}
+                    title={rows.length <= 1 ? '至少保留 1 页' : '删除这一页（10 秒内可撤销）'}
+                    onClick={() => setConfirmDel(s)}>删除此页</button>
           </div>
           {locked && <p>页面任务运行中，暂不能修改内容或配置；已有结果仍可查看。</p>}
           <div className="deck-slide num mt-3">
@@ -160,6 +207,20 @@ export function ContentEditor({projectId, onConfirmed, onExclude, onSaveState}: 
         </fieldset>
       </section>}
     </div>
+    {confirmDel && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" ref={delModalRef} tabIndex={-1}
+         role="dialog" aria-modal="true" aria-label={`删除第 ${confirmDel.page_no} 页`} onClick={() => setConfirmDel(null)}>
+      <div className="card flex w-full max-w-[28rem] flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+        <h3 className="m-0 text-h3">删除第 <span className="num">{confirmDel.page_no}</span> 页？</h3>
+        <p className="m-0 text-body-sm text-ink-sub">
+          「{confirmDel.title?.trim() || '无标题'}」会从页清单与后续导出中移除，后面页面的页码自动前移。
+          <strong>删除后 10 秒内可撤销</strong>，撤销会把这一页原样放回原位置。
+        </p>
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn btn-secondary" onClick={() => setConfirmDel(null)}>取消</button>
+          <button type="button" className="btn btn-danger" disabled={deleting} onClick={() => void removeCurrent()}>{deleting ? '删除中…' : '确认删除'}</button>
+        </div>
+      </div>
+    </div>}
     <ActionBar>
       <PagerArrow dir="prev" disabled={!s || currentIndex === 0} onClick={() => selectPage(currentIndex - 1)} />
       <span>第 <span className="num">{s ? currentIndex + 1 : 0} / {rows.length}</span> 页</span>

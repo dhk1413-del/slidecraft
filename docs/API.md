@@ -167,7 +167,17 @@ mode 仅允许 `img2img` 与 `redesign`，非法值返回 400。img2img 参考�
 
 - 新上传的 PPTX 直接按原页提取文字和二维表格，保存真实 `source_page_no` 与不可变原文 `source_content`；原页无任何形状时 `source_available=0`，默认仅选择有效页，按源顺序展示。已有无映射的文档切页不会推测源页号。PPTX `/outline` 复用逐页原文和表格，不重新拆分原稿；图片页需人工补齐内容。
 - `PATCH /projects/{id}` 的 `page_drafts` 允许所有页 `keep=false`（保存零选草稿）；正式 `PUT /pages` 仍要求至少一页。取消勾选只更新 keep，不删除页面。页条目可带 `revision`；改标题时修订不匹配返回 409。项目详情与 PUT 响应增加 `content_revisions:{slide_id:revision}`。名称、范围、顺序不会递增内容修订。选中页的素材策略只有 `reference`：内容参考并重新排版，不能保证保留原图；排除页不参与生成策略。
-- `PATCH /api/projects/{pid}/slides/{slide_id}/content`：body `{revision,title?,outline?,points?:string[],modules?:[],source_note?,material_strategy?:"reference"}`。模块保留已有字段；表格模块 `{type:"table",title?,unit?,cells:[[string|number|null]]}` 必须为完整矩形。空串 / null / 待统计均不得推断为 0。响应为保存后的完整 Slide。事务内检查修订，冲突 409；实际内容变化递增 `content_revision`，相同内容不递增。保存清除内容确认，保留图片，不调用模型、不启动任务。
+- ### 删除单页 / 撤销删除（内容梳理）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| DELETE | `/api/projects/{pid}/slides/{slide_id}` | 删除该页（至少保留 1 页）。返回删除前的**完整快照**与 `page_no`，供前端 10 秒内撤销；删除后页码自动前移 |
+| POST | `/api/projects/{pid}/slides/restore` | 撤销删除：body `{page: <快照>, page_no: <原页码>}`，按快照重建该页（新 `slide_id`）并放回原位置 |
+
+实现口径：硬删除 + 快照恢复（不引入 `deleted` 列，避免所有既有查询都要加过滤）；删除会同时清掉该页的
+`slide_versions`，并把项目的 `content_confirmed_at` 置空（内容变了，需要重新确认）。
+
+`PATCH /api/projects/{pid}/slides/{slide_id}/content`：body `{revision,title?,outline?,points?:string[],modules?:[],source_note?,material_strategy?:"reference"}`。模块保留已有字段；表格模块 `{type:"table",title?,unit?,cells:[[string|number|null]]}` 必须为完整矩形。空串 / null / 待统计均不得推断为 0。响应为保存后的完整 Slide。事务内检查修订，冲突 409；实际内容变化递增 `content_revision`，相同内容不递增。保存清除内容确认，保留图片，不调用模型、不启动任务。
 - `POST /api/projects/{pid}/slides/{slide_id}/outline-retry`：body `{revision}`；只使用此页已存原文重新梳理，复用 DeepSeek / 零 key 本地降级，返回保存后的 Slide，不改其他页、不生成图片。无文字真源 400，用户可补齐或排除。
 - `PATCH /projects/{id}` 的 `confirm_content:true` 必须有选中页，且每页有标题和正文 / 要点 / 有内容的模块。内容确认只保存人工确认状态，不生成。`POST /generate` 支持 `content_revisions:{slide_id:revision}`：不匹配 409，未人工确认 / 不完整 / 已排除页返回 400；整套生成要求所有选中页就绪。旧接口未传修订仍兼容；旧项目 NULL 确认字段保留兼容口径，新向导必须明确确认。单页 regenerate 也检查内容确认与该页就绪状态。
 - Slide 增加 `content_revision`、`generated_revision`、`modules`、`source_note`、`source_content`、`generated_content`、`source_available`、`content_ready`、`content_stale`、`config_stale`、`review_required`、`material_strategy`。源侧 `verify` 增加 `scope:"source_only",image_verified:false`，历史 `text_accuracy` 不代表生成图片已验证。老项目图片基线以初始修订 1 比较；风格 / 尺寸不一致通过生成时保存的配置判断，旧图片无配置记录则不猜测。
