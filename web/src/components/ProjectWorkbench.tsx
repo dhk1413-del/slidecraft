@@ -17,6 +17,8 @@ import { EditableWorkbench } from './EditableWorkbench'
 import { ActionBar, OverviewGrid, PageLightbox, PageRail, PagerArrow } from './FlowKit'
 import { EmptyState, ErrorState, Loading, Notice, NotConfiguredBanner } from './StateBlock'
 import { useToast } from './Toast'
+import { LocalDemoDialog } from './OnboardingGuide'
+import { useImageReady } from './ProviderStatus'
 
 const SIZES = ['2K', '4K'] as const
 
@@ -54,6 +56,9 @@ export function ProjectWorkbench({
   const [genJobId, setGenJobId] = useState<string | null>(null)
   const [recovering, setRecovering] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const imageReady = useImageReady()
+  /** 未配置生图模型时点「生成」先弹引导；记住用户点的是哪类动作 */
+  const [demoPrompt, setDemoPrompt] = useState<null | { kind: 'generate' | 'optimize'; pageNo?: number }>(null)
   const [downloading, setDownloading] = useState(false)
   const [genError, setGenError] = useState<ApiError | null>(null)
   /** 结果查看：当前页下标 / 缩略总览开关 / 放大灯箱（与 PPT 美化同一套共用件） */
@@ -157,7 +162,9 @@ export function ProjectWorkbench({
     }
   }
 
-  async function startGenerate(pageOverride?: number[]) {
+  async function startGenerate(pageOverride?: number[], allowDemo = false) {
+    // 未配置生图模型：先引导去配置；用户明确选「先用本地演示」才走兜底（不静默降级）
+    if (!allowDemo && imageReady === false) { setDemoPrompt({ kind: 'generate' }); return }
     const pagesToRun = pageOverride?.length ? pageOverride : targetPages
     setSubmitting(true)
     setGenError(null)
@@ -185,8 +192,9 @@ export function ProjectWorkbench({
     }
   }
 
-  async function optimize(pageNoValue: number) {
+  async function optimize(pageNoValue: number, allowDemo = false) {
     if (running || submitting) return
+    if (!allowDemo && imageReady === false) { setDemoPrompt({ kind: 'optimize', pageNo: pageNoValue }); return }
     setSubmitting(true)
     try {
       const latest=await getSlides(projectId)
@@ -393,6 +401,18 @@ export function ProjectWorkbench({
         <PageLightbox pages={lightboxPages} index={currentIndex} onIndex={selectPage} onClose={() => setLightbox(false)}
           ariaLabel={`第 ${currentSlide.page_no} 页放大预览`} emptyText="这一页还没有生成结果" />
       )}
+
+      <LocalDemoDialog
+        open={!!demoPrompt}
+        actionLabel={demoPrompt?.kind === 'optimize' ? '重新生成这一页' : '生成页面'}
+        onCancel={() => setDemoPrompt(null)}
+        onDemo={() => {
+          const pending = demoPrompt
+          setDemoPrompt(null)
+          if (pending?.kind === 'optimize' && pending.pageNo) void optimize(pending.pageNo, true)
+          else void startGenerate(undefined, true)
+        }}
+      />
     </div>
   )
 }

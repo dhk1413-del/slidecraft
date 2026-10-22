@@ -1,6 +1,7 @@
 /** 图片转可编辑：独立 3 步（上传内容 → 页面确认 → 转换结果），不再套用生成向导的 5/6 步。 */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, cancelEditable, editableEngines, editpptStatus, exportDeck, getProject, getSlides, importPages, reviewSlide, toEditable } from '../api'
+import { EngineUnavailableNotice } from '../components/OnboardingGuide'
 import { Dropzone } from '../components/Dropzone'
 import { EditableWorkbench } from '../components/EditableWorkbench'
 import { ActionBar, FlowSteps, type FlowStep } from '../components/FlowKit'
@@ -248,6 +249,8 @@ export function EditableFlowPage({ projectId }: { projectId: string }) {
           onLocked={(_, reason) => { if (reason) toast.info('暂时不能进入', reason) }}
           label="图片转可编辑步骤" />
       </header>
+
+      <EngineUnavailableNotice engine={engine} />
 
       {step === 1 && (
         <>

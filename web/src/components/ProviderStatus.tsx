@@ -38,6 +38,17 @@ export function useTextReady(): boolean | null {
   return !!state.data.providers.text?.deepseek
 }
 
+/**
+ * 生图模型是否已配置（不含 local_render 兜底）。
+ * 复用顶栏那份健康探测；null 表示还没探测回来，调用方不要当成「未配置」。
+ */
+export function useImageReady(): boolean | null {
+  const state = useContext(HealthContext)
+  const image = state?.data?.providers?.image
+  if (!image) return null
+  return !!(image.guaihub || image.dashscope)
+}
+
 export function ProviderStatus() {
   const healthState = useContext(HealthContext)
   const [open, setOpen] = useState(false)

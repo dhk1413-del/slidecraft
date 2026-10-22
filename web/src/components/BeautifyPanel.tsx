@@ -4,6 +4,8 @@ import { IconFolder } from './Icons'
 import { Dropzone } from './Dropzone'
 import { ActionBar, FlowSteps, OverviewGrid, PageLightbox, PageRail, PageSelectGrid, PagerArrow, withVersion, type FlowStep } from './FlowKit'
 import { useToast } from './Toast'
+import { LocalDemoDialog } from './OnboardingGuide'
+import { useImageReady } from './ProviderStatus'
 import { useModalFocus } from '../hooks/useModalFocus'
 import { useJobStream } from '../hooks/useJobStream'
 import { MAX_UPLOAD_BYTES, UPLOAD_SIZE_HINT, bytes, cn, uploadTooLarge } from '../lib/format'
@@ -94,6 +96,9 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
   const [projectId, setProjectId] = useState<string | null>(resumeProjectId ?? null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const imageReady = useImageReady()
+  /** 未配置生图模型时，预览/全量生成先弹引导；明确选「本地演示」才继续 */
+  const [demoPrompt, setDemoPrompt] = useState<null | 'preview' | 'continue'>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BeautifyStatus | null>(null)
   /* ⑤ 结果页：本页历史版本（预览 + 恢复）与本次优化信息 */
@@ -215,8 +220,9 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
     finally { setBusy(false) }
   }
 
-  async function startPreview() {
+  async function startPreview(allowDemo = false) {
     if (!projectId || !selected.length || !packId || busy) return
+    if (!allowDemo && imageReady === false) { setDemoPrompt('preview'); return }
     setBusy(true)
     setError(null)
     setResult(null)
@@ -330,8 +336,9 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
     finally { setBusy(false) }
   }
 
-  async function continueAll() {
+  async function continueAll(allowDemo = false) {
     if (!projectId || busy || result?.phase !== 'preview') return
+    if (!allowDemo && imageReady === false) { setDemoPrompt('continue'); return }
     setBusy(true)
     setError(null)
     try {
@@ -845,6 +852,18 @@ export function BeautifyPanel({ packs, loadingPacks, onStepChange, resumeProject
         {result.exports.image && <a className={cn('btn rounded-full', result.exports.editable ? 'btn-secondary' : result.phase === 'preview' ? 'btn-secondary' : 'btn-primary')} href={result.exports.image} download>下载图片集 PPT</a>}
       </ActionBar>}
       {step === 5 && stream.status === 'error' && <button type="button" className="btn btn-secondary self-start" onClick={() => { setStep(4); setResult(null); setError(null); setJobId(null) }}>返回并重新生成预览</button>}
+
+      <LocalDemoDialog
+        open={!!demoPrompt}
+        actionLabel={demoPrompt === 'continue' ? '生成全部所选页面' : '生成美化预览'}
+        onCancel={() => setDemoPrompt(null)}
+        onDemo={() => {
+          const pending = demoPrompt
+          setDemoPrompt(null)
+          if (pending === 'continue') void continueAll(true)
+          else void startPreview(true)
+        }}
+      />
     </div>
   )
 }

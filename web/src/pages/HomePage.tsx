@@ -15,6 +15,7 @@ import { IconFolder, IconPalette, IconSparkles } from '../components/Icons'
 import { Dropzone } from '../components/Dropzone'
 import { StylePackCard } from '../components/StylePackCard'
 import { BeautifyPanel } from '../components/BeautifyPanel'
+import { ModelSetupNotice } from '../components/OnboardingGuide'
 import { useAsync } from '../hooks/useAsync'
 import { cn } from '../lib/format'
 import { sourceTypeOf } from '../lib/source'
@@ -125,6 +126,8 @@ export function HomePage() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* 未接模型引导：页面照常能进，但生成/转可编辑要先配置（可稍后关闭） */}
+      <ModelSetupNotice />
       {/* 首页大标题：品牌名 + 一句话说明，下面接上传卡 */}
       {!beautifyWorkbench && (
         <header className="home-hero">
