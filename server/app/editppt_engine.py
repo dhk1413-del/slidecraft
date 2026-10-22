@@ -223,15 +223,35 @@ def _env() -> Dict[str, str]:
     return env
 
 
+def install_hint() -> str:
+    """部署脚本后台自动安装 agent 链时，给「为什么还不可用」补一句人话。
+
+    只读 `data/logs/agent-install.status`（由 tools/install_agent.sh 写），
+    不改可用性判定本身：装没装好仍以三件套的实际存在为准。
+    """
+    path = os.path.join(config.DATA_DIR, "logs", "agent-install.status")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+    if "overall=running" in text:
+        return "；正在后台自动安装 agent 链（首次约 2–4 分钟，日志 data/logs/agent-install.log）"
+    if "overall=partial" in text:
+        return "；后台自动安装未完成，可运行 make install-agent 重试（日志 data/logs/agent-install.log）"
+    return ""
+
+
 def available() -> Dict[str, Any]:
     """引擎是否可用（不联网、不跑模型，只看本机装没装）。"""
     cli, skill = cli_path(), skill_dir()
     agent = agent_kind()
+    hint = install_hint()
     info: Dict[str, Any] = dict(engine="editppt", cli=cli, skill_dir=skill, agent=agent)
     if not os.path.exists(cli):
-        return dict(info, ok=False, reason="未安装 editppt CLI（%s）；安装方式见 skill §9.5" % cli)
+        return dict(info, ok=False, reason="未安装 editppt CLI（%s）；安装方式见 skill §9.5" % cli + hint)
     if not os.path.isdir(skill):
-        return dict(info, ok=False, reason="未找到 skill 目录（%s）" % skill)
+        return dict(info, ok=False, reason="未找到 skill 目录（%s）" % skill + hint)
     if not os.path.exists(os.path.join(skill, "SKILL.md")):
         return dict(info, ok=False, reason="skill 目录缺少 SKILL.md（%s）" % skill)
     if agent == "harness":

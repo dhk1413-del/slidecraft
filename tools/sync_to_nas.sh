@@ -77,6 +77,10 @@ printf '%s (deployed %s)\n' "$STAMP" "$(date '+%F %T')" > .sync-commit
 echo "VERSION=$(cat VERSION)"
 curl -fsS --noproxy '*' "http://127.0.0.1:$PORT/api/health"
 echo
+# 顺带自愈「图片转可编辑」agent 链（幂等；已就绪时秒回，缺件时后台补装，不阻塞部署）
+if [ -f tools/install_agent.sh ]; then
+  bash tools/install_agent.sh --background || true
+fi
 REMOTE
 
 echo "==> 完成：$HOST 已更新"

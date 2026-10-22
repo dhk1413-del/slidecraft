@@ -102,6 +102,14 @@ git -c http.proxy= -c https.proxy= push origin --follow-tags
   **每轮改完、跑完门禁后直接执行**，并在交付里贴出 VM 的版本与 health 结果。
   **安全闸**：VM 上有 `queued/running/cancelling` 作业或 headless page worker 时脚本会直接退出（不部署、不重启），
   避免打断正在跑的生成/转可编辑作业；确需强制覆盖用 `SYNC_FORCE=1 make sync-nas`。
+- **agent 链自动安装（2026-10-22 起）**：`server/run.sh` 启动时会后台调用
+  `tools/install_agent.sh --background`，自动装「图片转可编辑」需要的四件：Harness CLI（npm `@deepseek-ai/dsh`）、
+  editppt CLI（`~/.editppt-venv`）、第三方 skill 仓库（`~/Documents/skills-repos/image-to-editable-ppt-skill`）、
+  以及把 skill 链到 Harness 的 `~/.agents/skills/`。**幂等、尽力而为、失败不阻断启动**（零 key 主流程不受影响）。
+  状态/日志：`data/logs/agent-install.status` / `agent-install.log`；`make install-agent` 手动重试，
+  `make agent-status` 查看；`DECKFORGE_SKIP_AGENT_INSTALL=1` 整条跳过、`DECKFORGE_SKIP_HARNESS=1` 只跳过 Harness。
+  npm 一律带可写 `--cache`（默认 `<repo>/.npm-cache`），避开 `~/.npm` 历史 root 属主导致的 EPERM。
+  **Harness 登录仍需人工一次**（自助安装不代登录）；装好后 `GET /api/editable-engines` 应返回 `ok=true`。
 - **多机 worker（2026-10-20 起）**：`editppt.remote_workers`（settings 里的 JSON 数组）可把「图片转可编辑」的 page worker
   派到装了 Harness 的辅助机，与平台本机 worker 一起并发。每项：
   `{"host","slots","workdir","dsh","profile","skill_dir","editppt_cli"}`，默认 workdir `/opt/editppt-workers`。

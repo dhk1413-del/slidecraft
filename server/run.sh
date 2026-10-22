@@ -24,6 +24,14 @@ if ! (cd server/pptx && node -e "import('pptxgenjs')") >/dev/null 2>&1; then
   npm ci --prefix server/pptx
 fi
 
+# 「图片转可编辑」需要 agent 链（Harness CLI + editppt CLI + 第三方 skill）。
+# 首次启动/缺件时后台自动安装：不阻塞启动，失败也不影响零 key 主流程，
+# 装好后 /api/editable-engines 会自动变为可用。跳过：DECKFORGE_SKIP_AGENT_INSTALL=1
+if [ "${DECKFORGE_SKIP_AGENT_INSTALL:-0}" != "1" ] && [ -f tools/install_agent.sh ]; then
+  echo "== 检查/后台安装「图片转可编辑」所需 agent 链（Harness 等）=="
+  bash tools/install_agent.sh --background || true
+fi
+
 export PYTHONPATH="$(pwd)/server"
 
 # 默认仅监听本机。局域网访问时用 DECKFORGE_HOST=0.0.0.0 显式开启。

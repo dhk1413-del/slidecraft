@@ -29,6 +29,8 @@ web/dist/
 server/pptx/node_modules/
 # 第三方 skill 的打包产物（由 openviking-skills 导出，不属于本仓库内容）
 skill-output/
+# npm 安装缓存（tools/install_agent.sh 用可写缓存，避开 ~/.npm 历史 root 属主）
+.npm-cache/
 
 # Python / Node 缓存
 __pycache__/

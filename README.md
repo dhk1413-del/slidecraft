@@ -27,7 +27,9 @@ npm --prefix web run build
 bash server/start-lan.sh
 ```
 
-macOS 首次启动会自动安装其余依赖。Windows 按使用说明中的 PowerShell 命令安装依赖、构建前端并启动，无需 Ubuntu 或 WSL。
+macOS 首次启动会自动安装其余依赖；同时会**后台自动安装「图片转可编辑」所需的重建工具**（Harness CLI、editppt CLI 与第三方 skill），幂等执行、失败不阻断启动。跳过自动安装用 `DECKFORGE_SKIP_AGENT_INSTALL=1`；手动重试 / 查看状态用 `make install-agent` / `make agent-status`。装好后需在 Harness 里登录一次（安装器不代登录）。
+
+Windows 按使用说明中的 PowerShell 命令安装依赖、构建前端并启动，无需 Ubuntu 或 WSL；Windows 首次可另开 Git Bash 执行 `bash tools/install_agent.sh --install` 完成同一套自动安装。
 
 启动后打开 **http://127.0.0.1:8641**。Windows 运行时保持 PowerShell 窗口打开，按 Ctrl+C 停止。
 

@@ -6,7 +6,7 @@
 PY   := .venv/bin/python
 PORT := 8641
 
-.PHONY: help verify verify-fast test build lint guard hooks release-check run stop restart sync-nas
+.PHONY: help verify verify-fast test build lint guard hooks release-check run stop restart sync-nas install-agent agent-status
 
 help:                ## 列出可用命令
 	@grep -E '^[a-z][a-z-]*:.*##' Makefile | sed 's/:.*##/\t/' | column -t -s "$$(printf '\t')"
@@ -53,3 +53,9 @@ restart: stop run    ## 重启服务（改后端后必须走这条，别在终�
 
 sync-nas:            ## 同步本机改动到 NAS 虚拟机（保留 VM 的 data/.env）并重建重启
 	bash tools/sync_to_nas.sh
+
+install-agent:       ## 安装「图片转可编辑」所需 agent 链（Harness CLI + editppt CLI + skill）
+	bash tools/install_agent.sh --install
+
+agent-status:        ## 查看 agent 链状态（Harness / CLI / skill / 登录）
+	bash tools/install_agent.sh --check

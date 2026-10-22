@@ -38,6 +38,7 @@ TOOLS = [
     ("test_image_retry", "生图重试与链路切换（瞬态重试/代理↔直连/401 不重试）"),
     ("test_slide_notes", "讲稿备注模块"),
     ("test_style_builder", "风格构建（上传模板/参考图 → 证据分层 → 令牌合成 → 落盘后在风格库可见）"),
+    ("test_install_agent", "agent 链自动安装（Harness/CLI/skill 判定、尽力而为、可跳过、状态落盘）"),
 ]
 
 
