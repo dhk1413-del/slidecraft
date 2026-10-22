@@ -259,7 +259,8 @@ export function WizardPage() {
   },[projectId])
   /* 大纲编辑改的是「标题 / 摘要(outline) / 原文(points)」，这些必须一起提交，
      否则内容梳理读 slides 时看不到改动（bug：以前只传 title/keep/layout/章节） */
-  function pagePayload(next:PageDraft[]) {return next.map(p=>({page_no:p.page_no,title:p.title,keep:p.keep,layout:p.layout,revision:p.content_revision,chapter_no:p.chapter_no ?? 0,chapter_title:p.chapter_title ?? '',outline:p.outline ?? '',points:p.points ?? []}))}
+  /* slide_id 必须带上：后端按它把提交的页清单与 slides 对账（新增/删除/重排才能同步到③内容梳理） */
+  function pagePayload(next:PageDraft[]) {return next.map(p=>({slide_id:p.slide_id ?? null,page_no:p.page_no,title:p.title,role:p.role,keep:p.keep,layout:p.layout,revision:p.content_revision,chapter_no:p.chapter_no ?? 0,chapter_title:p.chapter_title ?? '',outline:p.outline ?? '',points:p.points ?? []}))}
   async function persistPages(next: PageDraft[]) {
     setPages(next)
     return saveConfig({page_drafts:pagePayload(next)})

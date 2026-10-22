@@ -665,14 +665,28 @@ def original_content(row) -> str:
 
 
 def validate_page_revisions(pid: str, pages: List[Dict[str, Any]]) -> None:
+    # 只校验「带 slide_id 的既有页」：没有 slide_id 的是编辑大纲里新增的页，没有既有内容可比。
+    # 匹配必须用 slide_id——页序变动（删除/新增/重排）时用 page_no 会张冠李戴，误报 409。
+    by_id = {row["id"]: dict(row) for row in db.q("SELECT * FROM slides WHERE project_id=?", (pid,))}
     for page in pages:
-        row = db.q1("SELECT * FROM slides WHERE project_id=? AND page_no=?", (pid, page.get("page_no")))
-        if row and page.get("title", row["title"]) != row["title"] and "revision" in page and page["revision"] != row["content_revision"]:
+        sid = str(page.get("slide_id") or "")
+        if not sid:
+            continue
+        row = by_id.get(sid)
+        if not row:
+            continue
+        if page.get("title", row["title"]) != row["title"] and page.get("revision") is not None \
+                and page["revision"] != row["content_revision"]:
             raise HTTPException(409, "页面内容已变更，请保留草稿并重新加载")
 
 
 @app.put("/api/projects/{pid}/pages")
 def put_pages(pid: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """以提交的页清单为准对账 slides：新增的在编辑大纲里新建、缺失的删掉、顺序按提交的来。
+
+    历史 bug（用户 2026-10-22）：只按 page_no 更新已有行，新增页不创建、删掉的页不删，
+    于是②编辑大纲里增删的页面在③内容梳理里对不上。现在按 slide_id 匹配，页序变动不会张冠李戴。
+    """
     guard_generation(pid)
     get_project(pid)
     pages = payload.get("pages", [])
@@ -682,16 +696,52 @@ def put_pages(pid: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     db.update("projects", pid, dict(page_drafts_json=json.dumps(pages, ensure_ascii=False),
                                    target_pages=sum(bool(p.get("keep", True)) for p in pages),
                                    pages_confirmed_at=db.now(), content_confirmed_at=""))
-    for p in pages:
-        row = db.q1("SELECT * FROM slides WHERE project_id=? AND page_no=?", (pid, p.get("page_no")))
-        if not row:
+
+    existing = {row["id"]: dict(row) for row in db.q("SELECT * FROM slides WHERE project_id=?", (pid,))}
+    by_page_no = {int(row["page_no"]): dict(row) for row in db.q("SELECT * FROM slides WHERE project_id=?", (pid,))}
+    # 只有「整份载荷都不带 slide_id」的旧客户端才按页号回退匹配；混合载荷里的无 id 页就是新增页
+    legacy_payload = not any(str(p.get("slide_id") or "") for p in pages)
+    if existing:
+        # 先整体挪到偏移区：下面要按新顺序就地写 page_no，唯一索引不允许直接互换
+        db.x("UPDATE slides SET page_no=page_no+?, display_order=display_order+? WHERE project_id=?",
+             (_PAGE_NO_OFFSET, _PAGE_NO_OFFSET, pid))
+    ordered = sorted(enumerate(pages), key=lambda item: (int(item[1].get("page_no") or 0), item[0]))
+    kept: set = set()
+    created = 0
+    for index, (_, p) in enumerate(ordered, 1):
+        sid = str(p.get("slide_id") or "")
+        row = existing.get(sid) if sid else None
+        if row is None and not sid and legacy_payload:
+            # 兼容旧载荷（不带 slide_id）：按页号回退匹配，避免把已有页误判成新增而建出重复行
+            try:
+                row = by_page_no.get(int(p.get("page_no") or 0))
+            except (TypeError, ValueError):
+                row = None
+        if row is None:
+            # 编辑大纲里新增的页面 → 建一条 slide。source_available=1 表示「这是一页可用内容」
+            # （它没有原稿页，但必须能出现在内容梳理/生成清单里；置 0 会被 keep/valid 过滤掉）
+            record = dict(
+                id=db.uid("s"), project_id=pid, page_no=index, display_order=index,
+                title=str(p.get("title") or "新页面")[:120], role=str(p.get("role") or "content"),
+                layout=str(p.get("layout") or "cards_4"), outline=str(p.get("outline") or "")[:8000],
+                points_json=json.dumps([str(x) for x in (p.get("points") or [])][:60], ensure_ascii=False),
+                must_keep_json="[]", modules_json="[]", keep=1 if p.get("keep", True) else 0,
+                status="pending", content_revision=1, source_available=1, source_page_no=None,
+                chapter_no=int(p.get("chapter_no") or 0), chapter_title=str(p.get("chapter_title") or "")[:24],
+                created_at=db.now(), updated_at=db.now(),
+            )
+            db.insert("slides", record)
+            kept.add(record["id"])
+            created += 1
             continue
-        upd = {}
+        kept.add(row["id"])
+        upd: Dict[str, Any] = {}
         content_changed = False
-        if "keep" in p:
-            upd["keep"] = 1 if p["keep"] and row["source_available"] else 0
+        # 无条件写页码：循环前已把既有页整体挪进偏移区，必须逐行落回最终值（否则残留 100001+）
+        upd["page_no"] = index
+        upd["display_order"] = index
         if p.get("title") and p["title"] != row["title"]:
-            upd["title"] = p["title"]
+            upd["title"] = str(p["title"])[:120]
             content_changed = True
         if "outline" in p and str(p.get("outline") or "") != (row["outline"] or ""):
             upd["outline"] = str(p.get("outline") or "")[:8000]
@@ -703,19 +753,31 @@ def put_pages(pid: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
                 upd["points_json"] = json.dumps(next_points, ensure_ascii=False)
                 content_changed = True
         if content_changed:
-            # 大纲编辑里改的标题/摘要/原文都算内容变更：统一 bump 一次修订号并留原文快照
             upd["content_revision"] = row["content_revision"] + 1
             upd["source_content_json"] = original_content(row)
+        if "keep" in p:
+            upd["keep"] = 1 if p["keep"] and row["source_available"] else 0
         if p.get("layout"):
-            upd["layout"] = p["layout"]
+            upd["layout"] = str(p["layout"])
+        if p.get("role"):
+            upd["role"] = str(p["role"])
         if "chapter_no" in p:
             upd["chapter_no"] = int(p.get("chapter_no") or 0)
         if "chapter_title" in p:
             upd["chapter_title"] = str(p.get("chapter_title") or "")[:24]
         if upd:
             db.update("slides", row["id"], upd)
-    return dict(ok=True, content_revisions={r["id"]: r["content_revision"] for r in db.q(
-        "SELECT * FROM slides WHERE project_id=?", (pid,))})
+
+    # 编辑大纲里已删除的页 → 这里同步删掉（连同版本历史）
+    removed = [sid for sid in existing if sid not in kept]
+    for sid in removed:
+        db.x("DELETE FROM slides WHERE id=?", (sid,))
+        db.x("DELETE FROM slide_versions WHERE slide_id=?", (sid,))
+    if removed or created:
+        _renumber_slides(pid)
+    return dict(ok=True, created=created, removed=len(removed),
+                content_revisions={r["id"]: r["content_revision"] for r in db.q(
+                    "SELECT * FROM slides WHERE project_id=?", (pid,))})
 
 
 def content_ready(row: Dict[str, Any]) -> bool:
@@ -740,12 +802,21 @@ _SLIDE_RESTORE_FIELDS = (
 )
 
 
+_PAGE_NO_OFFSET = 100000
+
+
 def _renumber_slides(pid: str) -> None:
-    """按当前顺序把页码/展示序号重排为 1..N（删除或恢复后调用）。"""
+    """按当前顺序把页码/展示序号重排为 1..N（删除或恢复后调用）。
+
+    slides 上有 UNIQUE(project_id, page_no)，就地前移会撞唯一索引 → 先整体挪到偏移区再落最终值。
+    """
     rows = db.q("SELECT id, page_no, display_order FROM slides WHERE project_id=? ORDER BY page_no, display_order", (pid,))
+    if all(row["page_no"] == index and row["display_order"] == index for index, row in enumerate(rows, 1)):
+        return
+    db.x("UPDATE slides SET page_no=page_no+?, display_order=display_order+? WHERE project_id=?",
+         (_PAGE_NO_OFFSET, _PAGE_NO_OFFSET, pid))
     for index, row in enumerate(rows, 1):
-        if row["page_no"] != index or row["display_order"] != index:
-            db.x("UPDATE slides SET page_no=?, display_order=? WHERE id=?", (index, index, row["id"]))
+        db.x("UPDATE slides SET page_no=?, display_order=? WHERE id=?", (index, index, row["id"]))
 
 
 def _sync_pages_after_mutation(pid: str) -> None:

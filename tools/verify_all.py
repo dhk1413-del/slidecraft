@@ -33,6 +33,7 @@ TOOLS = [
     ("test_native_status", "slides 的 native_status 汇报口径（别把从未构建报成待重建）"),
     ("test_outline_sync", "编辑大纲 → 内容梳理 内容同步（标题/摘要/原文落库/修订号只 bump 一次）"),
     ("test_slide_delete", "内容梳理删除此页/撤销（页码重排/快照还原/至少留 1 页）"),
+    ("test_pages_reconcile", "大纲⇄内容梳理页集合对账（删中间页不串位/新增页落库/重排内容跟随）"),
     ("test_native_render", "原生可编辑渲染器（不伪造内容）"),
     ("test_vision_parse", "视觉解析（宽容解析/图表归一化）"),
     ("test_vision_config", "视觉模型配置（GuaiHub 中转 key 兜底/百炼优先/脱敏）"),
