@@ -687,13 +687,25 @@ def put_pages(pid: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         if not row:
             continue
         upd = {}
+        content_changed = False
         if "keep" in p:
             upd["keep"] = 1 if p["keep"] and row["source_available"] else 0
-        if p.get("title"):
+        if p.get("title") and p["title"] != row["title"]:
             upd["title"] = p["title"]
-            if p["title"] != row["title"]:
-                upd["content_revision"] = row["content_revision"] + 1
-                upd["source_content_json"] = original_content(row)
+            content_changed = True
+        if "outline" in p and str(p.get("outline") or "") != (row["outline"] or ""):
+            upd["outline"] = str(p.get("outline") or "")[:8000]
+            content_changed = True
+        if "points" in p:
+            before_points = json.loads(row["points_json"] or "[]")
+            next_points = [str(x) for x in (p.get("points") or [])][:60]
+            if next_points != before_points:
+                upd["points_json"] = json.dumps(next_points, ensure_ascii=False)
+                content_changed = True
+        if content_changed:
+            # 大纲编辑里改的标题/摘要/原文都算内容变更：统一 bump 一次修订号并留原文快照
+            upd["content_revision"] = row["content_revision"] + 1
+            upd["source_content_json"] = original_content(row)
         if p.get("layout"):
             upd["layout"] = p["layout"]
         if "chapter_no" in p:

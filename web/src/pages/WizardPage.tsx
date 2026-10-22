@@ -257,7 +257,9 @@ export function WizardPage() {
     window.addEventListener('focus',refresh)
     return()=>{window.clearInterval(poll);window.removeEventListener('focus',refresh)}
   },[projectId])
-  function pagePayload(next:PageDraft[]) {return next.map(p=>({page_no:p.page_no,title:p.title,keep:p.keep,layout:p.layout,revision:p.content_revision,chapter_no:p.chapter_no ?? 0,chapter_title:p.chapter_title ?? ''}))}
+  /* 大纲编辑改的是「标题 / 摘要(outline) / 原文(points)」，这些必须一起提交，
+     否则内容梳理读 slides 时看不到改动（bug：以前只传 title/keep/layout/章节） */
+  function pagePayload(next:PageDraft[]) {return next.map(p=>({page_no:p.page_no,title:p.title,keep:p.keep,layout:p.layout,revision:p.content_revision,chapter_no:p.chapter_no ?? 0,chapter_title:p.chapter_title ?? '',outline:p.outline ?? '',points:p.points ?? []}))}
   async function persistPages(next: PageDraft[]) {
     setPages(next)
     return saveConfig({page_drafts:pagePayload(next)})
@@ -772,7 +774,7 @@ export function WizardPage() {
           {pagesError && <ErrorState compact error={pagesError} onRetry={savePages} title="保存大纲失败" />}
         </> : outlineStep}
       </fieldset>}
-      {step === 3 && !locked[3] && projectId && <ContentEditor key={projectId} projectId={projectId} onSaveState={setContentSaveState} onConfirmed={()=>{setContentConfirmed(true);goto(4)}} onExclude={async no=>{const next=pages.map(p=>p.page_no===no?{...p,keep:false}:p);const fresh=await getSlides(projectId);const updated=next.map(p=>({...p,title:fresh.find(s=>s.page_no===p.page_no)?.title||p.title,content_revision:fresh.find(s=>s.page_no===p.page_no)?.content_revision}));if(!await persistPages(updated))throw new Error('保存失败，请重试');if(updated.some(p=>p.keep)){await putPages(projectId,{pages:updated});setPagesConfirmed(true)}}}/>}
+      {step === 3 && !locked[3] && projectId && <ContentEditor key={projectId} projectId={projectId} onSaveState={setContentSaveState} onConfirmed={()=>{setContentConfirmed(true);goto(4)}} onExclude={async no=>{const next=pages.map(p=>p.page_no===no?{...p,keep:false}:p);const fresh=await getSlides(projectId);const updated=next.map(p=>{const row=fresh.find(s=>s.page_no===p.page_no);return row?{...p,title:row.title,outline:row.outline ?? '',points:row.points ?? [],content_revision:row.content_revision}:p});if(!await persistPages(updated))throw new Error('保存失败，请重试');if(updated.some(p=>p.keep)){await putPages(projectId,{pages:updated});setPagesConfirmed(true)}}}/>}
       {step === 4 && !locked[4] && <fieldset disabled={taskRunning} title={taskRunning?'任务运行中，风格暂不能修改':undefined}>{styleStep}</fieldset>}
       {/* 同槽位渲染同一个实例：⑤⑥ 之间切步骤时不丢勾选/进度状态 */}
       {(step === 5 || step === 6) && !locked[step] && projectId && (
