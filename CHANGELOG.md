@@ -7,6 +7,41 @@
 `tools/check_version_sync.py` 在门禁里强制对齐，`server/app/main.py` 直接读该文件（`/api/health` 可查）。
 发版流程见 [AGENTS.md](AGENTS.md#发版流程)。
 
+## [0.5.0] - 2026-10-22
+
+### 新增
+
+- **未接模型引导**：不接模型也能进页面、上传和梳理内容；点「生成 / 转可编辑」时先弹引导——
+  「去配置密钥」（跳设置页）或**显式选择**「先用本地演示」（`local_render`，费用 0、不代表真实设计）。
+  引擎不可用时在页面上说明缺件与修法（`make install-agent` / Harness 登录一次）。提示条可「稍后」关闭。
+- **部署自动安装 agent 链**：首次启动后台自动装「图片转可编辑」需要的四件——Harness CLI（npm `@deepseek-ai/dsh`）、
+  editppt CLI、第三方 skill 仓库、以及把 skill 链进 Harness 技能目录。幂等、尽力而为、失败不阻断启动；
+  `make install-agent` 手动重试、`make agent-status` 查看，`DECKFORGE_SKIP_AGENT_INSTALL=1` 可整条跳过。
+  NAS 部署完成后也会顺带自愈同一套链。新增离线回归 `test_install_agent`（17 项）。
+- **备注逐页复核显示 PPT 实际页面**：新增 `POST /api/notes/{nid}/render`（LibreOffice → PDF → PyMuPDF 逐页 PNG，
+  幂等、按作业串行、磁盘缓存）；前端进入第②步按需自动渲染，预览区显示真实页面（可点开原图），
+  渲染中提示、失败可重试并回退文字。
+- **视觉识别复用 GuaiHub key**：只配了 GuaiHub 中转 key 的机器，备注识别 / 风格构建 / 图片重建也能做视觉识别
+  （默认 `gemini-2.5-flash`，New API 兼容 `/chat/completions`）；单独填视觉 key 仍优先，返回 `fallback` 标记，
+  设置页显示「复用 GuaiHub key」。新增离线回归 `test_vision_config`（24 项）。
+
+### 变更
+
+- **零 key 兜底改为「界面必须显式选择」**：接口层仍保留 `local_render` 兜底（`tools/e2e_mvp.py` 零 key 基线依赖它），
+  但界面不再静默降级——必须经过引导并明确选择「先用本地演示」才会走兜底（用户 2026-10-22 要求）。
+
+### 修复
+
+- 备注生成在「只配了 GuaiHub、没单独配视觉 key」的机器上图片页必然失败（旧任务整批 failed）的问题。
+- 逐页复核只能看提取文字、看不到上传 PPT 原页面的问题。
+- 自动安装器在 macOS 自带 bash 3.2 下的两处兼容性问题（空数组展开、变量紧跟中文导致的非法变量名）。
+
+### 升级
+
+- **无新增 Python / Node 依赖**；`data/` 与 `DECKFORGE_*` 变量保持不变，替换代码后重启即可。
+- 首次启动会在**后台**自动安装 agent 链（约 2–4 分钟，需联网）；不需要可用 `DECKFORGE_SKIP_AGENT_INSTALL=1` 跳过。
+- 只配了 GuaiHub key 的机器：视觉识别会自动复用该 key，可在设置页覆盖模型名。
+
 ## [0.4.0] - 2026-10-21
 
 ### 新增
