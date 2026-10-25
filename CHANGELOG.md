@@ -7,6 +7,30 @@
 `tools/check_version_sync.py` 在门禁里强制对齐，`server/app/main.py` 直接读该文件（`/api/health` 可查）。
 发版流程见 [AGENTS.md](AGENTS.md#发版流程)。
 
+## [0.6.0] - 2026-10-25
+
+### 新增
+
+- **内容梳理支持「删除此页」**：页面标题栏新增删除按钮，带确认弹窗与 **10 秒撤销**；删除后页码自动前移，
+  至少保留 1 页。新增 `DELETE /api/projects/{pid}/slides/{slide_id}`（返回删除前的完整快照）与
+  `POST /api/projects/{pid}/slides/restore`（按快照重建并放回原页码），已同步到 [`docs/API.md`](docs/API.md)。
+  新增离线回归 `test_slide_delete`。
+
+### 修复
+
+- **编辑大纲与内容梳理不同步**：大纲里改的标题 / 摘要 / 原文不会同步到内容梳理——现在保存大纲会按页写入
+  slides 并保留既有内容；新增回归 `test_outline_sync`。
+- **编辑大纲里新增/删除页面不同步**：现在会做一次页面对账（新增/删除/重排页码），并同步到内容梳理与后续步骤；
+  新增回归 `test_pages_reconcile`。
+- **图片转可编辑多机 worker 丢掉平台约束**：远端原先直接把 skill 的 worker prompt 当提示，漏掉「先加载 skill /
+  文字真源 / token 纪律」，实测远端页 token 高 3–6 倍；改为用平台包装提示（落 `platform-prompt.txt`），
+  并排除回传污染。`test_editppt_engine` 补对应断言（66 项）。
+
+### 升级
+
+- **无新增 Python / Node 依赖**；`data/` 与 `DECKFORGE_*` 变量保持不变，替换代码后重启即可。
+- 无数据迁移：删除页是真实删除（10 秒撤销窗口），撤销会以新 `slide_id` 重建该页。
+
 ## [0.5.0] - 2026-10-22
 
 ### 新增

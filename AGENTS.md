@@ -36,7 +36,7 @@
 ## 自检命令（每次改完都要跑，并把真实输出贴出来）
 
 ```bash
-make verify        # 规范验收：18 套离线回归 + 前端构建 + 线上只读冒烟（一条命令，本仓无 pytest/CI）
+make verify        # 规范验收：21 套离线回归 + 前端构建 + 线上只读冒烟（一条命令，本仓无 pytest/CI）
 make verify-fast   # 同上但跳过网络冒烟（不写库、不调模型、不花钱）
 make lint          # 后端字节码编译 + 前端 tsc（改完随手跑）
 make guard         # 密钥门禁：索引 + HEAD + 全历史（verify/verify-fast 已自动带 --head）
@@ -62,7 +62,7 @@ make hooks         # 新克隆启用 pre-commit / pre-push 密钥钩子（每个
 #    VERSION / web/package.json / CHANGELOG.md
 # 2) 发版前检查
 make release-check        # 版本一致 + key 门禁（含全历史）
-make verify-fast          # 离线回归，应当全绿；不绿就不要发版（含 m5/m6/m7 与 18 套工具）
+make verify-fast          # 离线回归，应当全绿；不绿就不要发版（含 m5/m6/m7 与 21 套工具）
 # 3) 提交推送
 git add -A && git commit -m "release: v$(cat VERSION)"
 git -c http.proxy= -c https.proxy= push origin main     # 直连可用；失败再试 -c http.proxy=http://127.0.0.1:65532
