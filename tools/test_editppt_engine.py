@@ -385,6 +385,12 @@ def main():
               and remote_page in rewritten
               and "/root/.agents/skills/image-to-editable-ppt" in rewritten
               and "/data/run_ab" not in rewritten, rewritten[:200])
+        fk.set(ee, "agent_kind", lambda: "harness")
+        page_dir = os.path.join(tmp, "run_ab", "20261020-1", "pages", "page_001")
+        os.makedirs(page_dir, exist_ok=True)
+        prompt = ee._worker_prompt("/data/run_ab/20261020-1", "page_001", page_dir)
+        check("★ 平台包装提示含 skill 加载 / 文字真源 / token 纪律（远端也必须用它）",
+              "skill" in prompt and "token 预算纪律" in prompt and "worker-prompt.md" in prompt, prompt[:120])
     finally:
         fk.restore()
         shutil.rmtree(tmp, ignore_errors=True)

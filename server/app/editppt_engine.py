@@ -609,6 +609,7 @@ def _rewrite_pulled_paths(page_dir: str, remote_page: str) -> None:
 def _pull_remote_page(node: Dict[str, Any], remote_page: str, page_dir: str) -> Dict[str, Any]:
     return _rsync_run(["-e", RSYNC_SSH,
                        "--exclude", "worker-prompt.md",
+                       "--exclude", "platform-prompt.txt",
                        "--exclude", "source.png",
                        "--exclude", "text_hints.png",
                        "--exclude", "agent.log",
@@ -653,12 +654,13 @@ def _run_remote_page_worker(node: Dict[str, Any], page_dir: str, page_id: str,
     prep = _ssh_run(node, "mkdir -p %s\n" % shlex.quote(remote_page))
     if not prep["ok"]:
         return dict(ok=False, tail="远端目录创建失败：%s" % prep["err"])
-    local_prompt = os.path.join(page_dir, "worker-prompt.md")
+    # 注意：这里必须用**平台包装提示**（_worker_prompt），不能直接跑 skill 的 worker-prompt.md——
+    # 否则远端会丢掉「先加载 skill / 文字真源 / token 纪律」这些平台约束（实测远端页 token 会高 3–6 倍）。
     try:
-        text = open(local_prompt, encoding="utf-8").read()
-    except OSError as exc:
-        return dict(ok=False, tail="读取 worker prompt 失败：%s" % exc)
-    tmp_prompt = os.path.join(page_dir, ".worker-prompt.remote.md")
+        text = _worker_prompt(run_dir, page_id, page_dir)
+    except Exception as exc:                                # noqa: BLE001
+        return dict(ok=False, tail="生成 worker prompt 失败：%s: %s" % (type(exc).__name__, exc))
+    tmp_prompt = os.path.join(page_dir, ".platform-prompt.remote.md")
     with open(tmp_prompt, "w", encoding="utf-8") as target:
         target.write(_rewrite_remote_prompt(text, run_dir, page_dir, remote_page, node))
     try:
@@ -672,10 +674,10 @@ def _run_remote_page_worker(node: Dict[str, Any], page_dir: str, page_id: str,
     if not push["ok"]:
         return dict(ok=False, tail="页面目录同步到远端失败：%s" % push["err"])
     rename = _ssh_run(node, "mv %s %s\n" % (
-        shlex.quote(posixpath.join(remote_page, ".worker-prompt.remote.md")),
-        shlex.quote(posixpath.join(remote_page, "worker-prompt.md"))))
+        shlex.quote(posixpath.join(remote_page, ".platform-prompt.remote.md")),
+        shlex.quote(posixpath.join(remote_page, "platform-prompt.txt"))))
     if not rename["ok"]:
-        return dict(ok=False, tail="远端 worker prompt 改名失败：%s" % rename["err"])
+        return dict(ok=False, tail="远端平台提示改名失败：%s" % rename["err"])
 
     cli_dir = posixpath.dirname(node["editppt_cli"])
     script = (
@@ -683,7 +685,7 @@ def _run_remote_page_worker(node: Dict[str, Any], page_dir: str, page_id: str,
         "export PATH=%s:$PATH\n"
         "cd %s\n"
         "rm -f agent.log\n"
-        "setsid nohup %s --profile %s \"$(cat worker-prompt.md)\" > agent.log 2>&1 < /dev/null &\n"
+        "setsid nohup %s --profile %s \"$(cat platform-prompt.txt)\" > agent.log 2>&1 < /dev/null &\n"
         "echo $!\n"
         % (shlex.quote(cli_dir), shlex.quote(remote_page),
            shlex.quote(node["dsh"]), shlex.quote(node["profile"])))
