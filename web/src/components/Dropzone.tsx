@@ -12,7 +12,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 export function Dropzone({
-  head, hint, formats, accept, multiple, paste, icon, onPick,
+  head, hint, formats, accept, multiple, paste, icon, onPick, onPaste,
 }: {
   head: string
   hint: string
@@ -24,14 +24,20 @@ export function Dropzone({
   /** 顶部上传图标块（首页参考版式用；其他页面默认不显示，保持原紧凑样式） */
   icon?: boolean
   onPick: (files: File[]) => void
+  /** 粘贴得到的图片单独处理（默认走 onPick）；多张截图依次粘贴、需要追加进清单时传它 */
+  onPaste?: (files: File[]) => void
 }) {
   const [over, setOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  // onPick 通常是内联箭头函数：存 ref，避免每次渲染都重挂 window 监听
+  // onPick / onPaste 通常是内联箭头函数：存 ref，避免每次渲染都重挂 window 监听
   const onPickRef = useRef(onPick)
+  const onPasteRef = useRef(onPaste)
   useEffect(() => {
     onPickRef.current = onPick
   }, [onPick])
+  useEffect(() => {
+    onPasteRef.current = onPaste
+  }, [onPaste])
 
   useEffect(() => {
     if (!paste) return
@@ -40,7 +46,9 @@ export function Dropzone({
       const images = clipboardImages(e.clipboardData)
       if (!images.length) return // 不是图片：放行浏览器默认粘贴（文本不受影响）
       e.preventDefault()
-      onPickRef.current(multiple ? images : images.slice(0, 1))
+      const picked = multiple ? images : images.slice(0, 1)
+      const handler = onPasteRef.current ?? onPickRef.current
+      handler(picked)
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)

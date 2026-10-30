@@ -13,6 +13,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { createProject, importPages, listStylePacks, type ApiError } from '../api'
 import { IconFolder, IconPalette, IconSparkles } from '../components/Icons'
 import { Dropzone } from '../components/Dropzone'
+import { PickedFiles } from '../components/PickedFiles'
 import { StylePackCard } from '../components/StylePackCard'
 import { BeautifyPanel } from '../components/BeautifyPanel'
 import { ModelSetupNotice } from '../components/OnboardingGuide'
@@ -275,8 +276,6 @@ function EditablePanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const totalKb = Math.round(files.reduce((sum, f) => sum + f.size, 0) / 1024)
-
   const start = async () => {
     if (!files.length || busy) return
     setBusy(true)
@@ -303,31 +302,24 @@ function EditablePanel() {
         <Dropzone
           icon
           multiple
+          paste
           head="拖入 PDF / 图片 / pptx（可多选，按顺序成册）"
-          hint="点击此处选择文件"
+          hint="点击此处选择文件，截图后也可直接 ⌘V / Ctrl+V 粘贴"
           formats="PDF · PNG · JPG · PPTX · 多张图片按顺序拼成一册"
           accept=".pdf,.png,.jpg,.jpeg,.webp,.pptx"
           onPick={(picked) => {
             setError(null)
             setFiles(picked)
           }}
+          onPaste={(pasted) => {
+            // 多次粘贴 = 多张截图依次成页：追加而不是覆盖已选文件
+            setError(null)
+            setFiles((prev) => [...prev, ...pasted])
+          }}
         />
       </div>
 
-      {files.length > 0 && (
-        <div className="panel-alt flex flex-wrap items-center gap-2">
-          <span className="status status-success">已选择 {files.length} 个文件</span>
-          <span className="truncate">
-            {files[0].name}
-            {files.length > 1 ? ' 等' : ''}
-          </span>
-          <span className="num text-caption text-ink-sub">{totalKb} KB</span>
-          <span className="flex-1" />
-          <button type="button" className="link text-caption" onClick={() => setFiles([])}>
-            清除
-          </button>
-        </div>
-      )}
+      <PickedFiles files={files} onClear={() => setFiles([])} />
 
       {error && <div className="error-box text-body-sm">{error}</div>}
 

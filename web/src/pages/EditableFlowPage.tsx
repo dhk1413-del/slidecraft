@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, cancelEditable, editableEngines, editpptStatus, exportDeck, getProject, getSlides, importPages, reviewSlide, toEditable } from '../api'
 import { EngineUnavailableNotice } from '../components/OnboardingGuide'
 import { Dropzone } from '../components/Dropzone'
+import { PickedFiles } from '../components/PickedFiles'
 import { EditableWorkbench } from '../components/EditableWorkbench'
 import { ActionBar, FlowSteps, type FlowStep } from '../components/FlowKit'
 import { EmptyState, ErrorState, Loading, Notice } from '../components/StateBlock'
@@ -260,18 +261,14 @@ export function EditableFlowPage({ projectId }: { projectId: string }) {
               支持 PDF / PNG / JPG / WEBP / PPTX，多张图片按上传顺序拼成一册。上传后先按页渲染成图片，再交给
               image-to-editable-ppt 精细重建；原始文件只用于逐页渲染，不会整页贴图。
             </p>
-            <Dropzone multiple head="拖入 PDF / 图片 / pptx（可多选）" hint="点击此处选择文件"
+            <Dropzone multiple paste
+              head="拖入 PDF / 图片 / pptx（可多选）"
+              hint="点击此处选择文件，截图后也可直接 ⌘V / Ctrl+V 粘贴（多次粘贴按顺序追加）"
               formats="PDF · PNG · JPG · WEBP · PPTX · 多张图片按顺序拼成一册"
-              accept={ACCEPT} onPick={(picked) => { setError(null); setFiles(picked) }} />
-            {files.length > 0 && (
-              <div className="panel-alt flex flex-wrap items-center gap-2">
-                <span className="status status-success">已选择 {files.length} 个文件</span>
-                <span className="truncate">{files[0].name}{files.length > 1 ? ' 等' : ''}</span>
-                <span className="num text-caption text-ink-sub">{Math.round(files.reduce((sum, file) => sum + file.size, 0) / 1024)} KB</span>
-                <span className="flex-1" />
-                <button type="button" className="link text-caption" onClick={() => setFiles([])}>清除</button>
-              </div>
-            )}
+              accept={ACCEPT}
+              onPick={(picked) => { setError(null); setFiles(picked) }}
+              onPaste={(pasted) => { setError(null); setFiles((prev) => [...prev, ...pasted]) }} />
+            <PickedFiles files={files} onClear={() => setFiles([])} />
             {slides.length > 0 && <Notice kind="info">这个项目已经有 {slides.length} 页导入结果，可直接进入第②步页面确认。</Notice>}
             {error && <div className="error-box text-body-sm" role="alert">{error}</div>}
           </section>
